@@ -1,9 +1,4 @@
-import {
-  SimplePool,
-  finalizeEvent,
-  type Event,
-  type Filter,
-} from "nostr-tools";
+import { SimplePool, finalizeEvent, type Event } from "nostr-tools";
 import { nip04 } from "nostr-tools";
 import { hexToBytes } from "nostr-tools/utils";
 import type { TrueMatchMessage } from "./types.js";

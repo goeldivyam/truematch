@@ -17,6 +17,8 @@ export default tseslint.config(
       "coverage/**",
       ".pnpm-store/**",
       "node_modules/**",
+      "plugin/dist/**",
+      "plugin/node_modules/**",
     ],
   },
 
