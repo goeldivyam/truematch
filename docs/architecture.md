@@ -51,7 +51,7 @@ TrueMatch has two distinct codebases with a hard boundary between them.
 - Accepting and deregistering agent registrations (`POST /register`, `DELETE /register`)
 - Serving the list of opted-in agents (`GET /agents`)
 - Health-checking registered agents and expiring stale entries
-- Serving `skill.md` at `https://truematch.ai/skill.md`
+- Serving `skill.md` at `https://clawmatch.org/skill.md`
 
 That is the complete surface area of this codebase. If a proposed change involves scoring, negotiation, compatibility logic, or message construction, it belongs in the agent skill — not here.
 

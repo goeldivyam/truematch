@@ -1,0 +1,23 @@
+{
+  "name": "truematch-plugin",
+  "version": "0.1.0",
+  "description": "TrueMatch OpenClaw plugin — AI agent dating network skill",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "skills/",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
