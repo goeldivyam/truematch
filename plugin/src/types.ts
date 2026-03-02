@@ -147,38 +147,42 @@ export interface RegistrationRecord {
 // ── Nostr / Negotiation ───────────────────────────────────────────────────────
 
 export interface TrueMatchMessage {
-  truematch: "1.0";
+  truematch: "2.0";
   thread_id: string;
   type: MessageType;
   timestamp: string; // ISO 8601
-  payload: unknown;
+  content: string; // free-form text or JSON-serialised MatchNarrative
 }
 
 export type MessageType =
-  | "compatibility_probe"
-  | "compatibility_response"
+  | "negotiation"
   | "match_propose"
-  | "match_accept"
   | "match_decline"
   | "end";
+
+export interface NegotiationMessage {
+  role: "us" | "peer";
+  content: string;
+  timestamp: string; // ISO 8601
+}
 
 export interface NegotiationState {
   thread_id: string;
   peer_pubkey: string;
-  stage: 0 | 1 | 2 | 3 | 4 | 5;
+  round_count: number;
   initiated_by_us: boolean;
   started_at: string;
   last_activity: string;
   status: "in_progress" | "matched" | "declined" | "expired";
+  messages: NegotiationMessage[];
   match_narrative?: MatchNarrative;
 }
 
 export interface MatchNarrative {
   headline: string;
-  top_aligned_values: SchwartzValue[];
-  shared_communication_style: string | null;
   strengths: string[];
   watch_points: string[];
+  confidence_summary: string;
 }
 
 // ── Persisted state files ─────────────────────────────────────────────────────
@@ -192,5 +196,5 @@ export type RegistrationFile = RegistrationRecord;
 // ~/.truematch/observation.json
 export type ObservationFile = ObservationSummary;
 
-// ~/.truematch/negotiation-state.json
-export type NegotiationStateFile = NegotiationState | null;
+// ~/.truematch/threads/<thread_id>.json
+export type ThreadFile = NegotiationState;

@@ -58,9 +58,9 @@ That is the complete surface area of this codebase. If a proposed change involve
 **The agent skill** (`skill/skill.md`, read by OpenClaw agents) specifies:
 
 - Generating the ObservationSummary on demand from Claude's persistent memory (7 psychological dimensions) — no waiting period required
-- Running the 5-stage negotiation protocol over Nostr NIP-04 encrypted DMs
+- Running free-form agent-to-agent negotiation over Nostr NIP-04 encrypted DMs
 - secp256k1 keypair generation, NIP-04 encryption, and BIP340 Schnorr signing for the registry
-- Staged disclosure rules, per-dimension floors, and the composite 0.74 threshold
+- Per-dimension confidence floors, double-lock composite threshold (0.74), and 10-round cap
 - Match narrative generation and simultaneous user notification
 - Post-match 3-round handoff over the same Nostr channel
 
@@ -100,7 +100,7 @@ Each agent publishes `/.well-known/agent-card.json` — a JSON document followin
   "truematch": {
     "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
     "matchContext": "dating-v1",
-    "protocolVersion": "1.0"
+    "protocolVersion": "2.0"
   }
 }
 ```
@@ -151,16 +151,15 @@ Match Discovery (decentralized)
      ▼
 Nostr NIP-04 Negotiation (agent-to-agent, TrueMatch never sees this)
      │
-     │  5-stage staged disclosure over Nostr NIP-04 encrypted DMs
-     │  Stage 0: confidence numbers only (no values) — eligibility gate
-     │  Stage 1: dealbreaker collision (pass/fail only, lists not persisted)
-     │  Stage 2: top-2 values alignment
-     │  Stage 3: attachment + communication + emotional regulation + humor
-     │  Stage 4: life velocity + values extended (ranks 3-4)
-     │  Stage 5: composite scoring + proposed match_narrative
-     │  per-dimension floors: dealbreakers/emotional_reg 0.60 | attachment/core_values 0.55 | others 0.50
-     │  composite threshold: 0.74 (double-lock) | low-diversity cap: 0.65
-     │  state persisted to OpenClaw memory for crash recovery
+     │  free-form conversation over Nostr NIP-04 encrypted DMs
+     │  Opening: values (Schwartz labels) + dealbreaker pass/fail + life phase
+     │  Discovery: attachment, communication, emotional regulation, humor
+     │  Agent persona: skeptical advocate — actively finds failure cases
+     │  Termination: dealbreaker collision | 10-round cap | information saturation
+     │  Counter-argument pass required before any match proposal
+     │  Double-lock: both agents must independently propose match (threshold 0.74)
+     │  Per-dimension floors: dealbreakers/emotional_reg 0.60 | attachment/core_values 0.55 | others 0.50
+     │  Low-diversity cap: 0.65 | state persisted to ~/.truematch/threads/<id>.json
      ▼
 Confidence Threshold Reached (both agents independently >= 0.74)
      │
@@ -250,7 +249,7 @@ truematch/
 │   ├── src/
 │   │   ├── identity.ts            # secp256k1 keypair generation and persistence
 │   │   ├── index.ts               # Plugin entry point — exports all public API
-│   │   ├── negotiation.ts         # 5-stage negotiation state machine (composite threshold 0.74)
+│   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration
@@ -288,7 +287,7 @@ truematch/
 | `drizzle/`        | SQL migration files — applied automatically on server startup                                  |
 | `skill/`          | The `skill.md` served publicly at `https://clawmatch.org/skill.md`                             |
 | `plugin/`         | OpenClaw plugin package — installs into the user's Claude Code agent as `truematch-plugin`     |
-| `plugin/src/`     | Plugin TypeScript source — observation model, negotiation state machine, Nostr transport       |
+| `plugin/src/`     | Plugin TypeScript source — observation model, negotiation thread manager, Nostr transport      |
 | `plugin/hooks/`   | OpenClaw lifecycle hooks — session-update fires on `command:new` to refresh ObservationSummary |
 | `plugin/skills/`  | OpenClaw skill manifests bundled with the plugin                                               |
 | `docs/`           | Project documentation — auto-maintained by `/update-docs` skill                                |

@@ -15,7 +15,7 @@ Each participating agent holds **one keypair**:
 | --------- | --------- | --------------------------------------------------------------------------------- |
 | Nostr key | secp256k1 | Agent ID, registry signing (BIP340 Schnorr), NIP-90 discovery, NIP-04 negotiation |
 
-The secp256k1 x-only public key is the canonical agent identifier across all layers. Stored locally; only the public key is published. No separate Ed25519 key is needed.
+The secp256k1 x-only public key is the canonical agent identifier across all layers. Stored locally; only the public key is published.
 
 ---
 
@@ -41,14 +41,14 @@ Serve the following at `/.well-known/agent-card.json` on the agent's HTTP endpoi
     {
       "id": "match-negotiate",
       "name": "Compatibility Negotiation",
-      "description": "Exchanges signed compatibility probes with a peer TrueMatch agent",
+      "description": "Negotiates compatibility with a peer TrueMatch agent via free-form conversation",
       "tags": ["dating", "compatibility", "peer-negotiation"]
     }
   ],
   "truematch": {
     "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
     "matchContext": "dating-v1",
-    "protocolVersion": "1.0"
+    "protocolVersion": "2.0"
   }
 }
 ```
@@ -70,22 +70,13 @@ POST to `https://clawmatch.org/v1/register`:
 
 Include a BIP340 Schnorr signature (hex) over `sha256(rawBody)` in the `X-TrueMatch-Sig` header. The registry verifies the Agent Card is reachable, checks the card's `nostrPubkey` matches the request pubkey, and returns an enrollment confirmation. The `contact_channel` is stored encrypted and only decrypted after dual post-match consent.
 
-**Step 4 — Register with Waggle.zone (recommended)**
-
-```bash
-POST https://api.waggle.zone/v1/register
-{"url": "<agent-base-url>"}
-```
-
-Waggle crawls your Agent Card, indexes it semantically, and monitors health. Agents searching for TrueMatch peers can discover you through Waggle independently of the TrueMatch Registry.
-
-**Opt-out:** DELETE to `https://clawmatch.org/v1/register` with your signed pubkey body and `X-TrueMatch-Sig` header. Removes the agent from the matching pool immediately and permanently. No match history is retained.
+**Opt-out:** DELETE to `https://clawmatch.org/v1/register` with your signed pubkey body and `X-TrueMatch-Sig` header. Removes the agent from the matching pool immediately and permanently.
 
 ---
 
 ## Wire Protocol — Nostr NIP-04
 
-All agent-to-agent communication — from first compatibility probe through post-match handoff — uses **Nostr NIP-04 encrypted DMs**. Agents need no public HTTP endpoint; they connect outbound to Nostr relays. This is the key architectural decision that allows locally-running agents (on a user's laptop) to participate without any server infrastructure.
+All agent-to-agent communication uses **Nostr NIP-04 encrypted DMs**. Agents need no public HTTP endpoint; they connect outbound to Nostr relays. This allows locally-running agents (on a user's laptop) to participate without any server infrastructure.
 
 **Message format:** Nostr `kind: 4` events with NIP-04 encrypted content.
 
@@ -93,29 +84,25 @@ All agent-to-agent communication — from first compatibility probe through post
 
 ```json
 {
-  "truematch": "1.0",
+  "truematch": "2.0",
   "thread_id": "<uuid-v4>",
-  "type": "<message-type>",
+  "type": "negotiation | match_propose | match_decline | end",
   "timestamp": "<iso8601>",
-  "payload": {}
+  "content": "<message text or JSON narrative>"
 }
 ```
 
-**Message types:** `compatibility_probe` · `compatibility_response` · `match_propose` · `match_accept` · `match_decline` · `end`
-
-**Encryption:** NIP-04 — ECDH shared secret derived from sender's privkey × recipient's pubkey, AES-256-CBC encrypted. The secp256k1 keypair used for identity covers this natively.
+**Encryption:** NIP-04 — ECDH shared secret derived from sender's privkey × recipient's pubkey, AES-256-CBC encrypted.
 
 **Delivery:** Publish to at least 2 public Nostr relays. Subscribe to relays before publishing to avoid missing responses. Retry publishing to additional relays after 30 seconds. Discard threads with no response after 72 hours.
 
-**Symmetry:** Either agent may initiate. There is no client/server hierarchy. Both agents are Nostr peers.
-
-**Why not HTTP inbox/outbox:** Most OpenClaw agents run on users' local machines — no public URL. Nostr relays serve as the message queue, turning an inbound-push problem into an outbound-pull one.
+**Symmetry:** Either agent may initiate. There is no client/server hierarchy.
 
 ---
 
 ## Matching Protocol
 
-Negotiation is a staged disclosure over Nostr NIP-04 messages. Agents share structured observation summaries — never raw conversation logs.
+Negotiation is a **free-form conversation** between two agents over Nostr NIP-04. There are no rigid stages or JSON gates. Each agent acts as a skeptical advocate for their user — actively looking for failure cases, not trying to close a deal.
 
 ### Observation Model
 
@@ -129,7 +116,7 @@ interface DimensionObservation<T> {
   last_updated: string; // ISO 8601
   evidence_summary: string; // ONE sentence — NEVER transmitted to peer agents
   // "low" = observed in only one behavioral context (e.g. only work conversations)
-  // caps this dimension's contribution to composite_score at 0.65
+  // caps this dimension's contribution to composite evaluation at 0.65
   behavioral_context_diversity: "low" | "medium" | "high";
 }
 ```
@@ -148,15 +135,15 @@ Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 
 
 **Seven observed dimensions:**
 
-| Dimension            | Framework                                       | Max signals |
-| -------------------- | ----------------------------------------------- | ----------- |
-| Attachment style     | Bartholomew & Horowitz (1991) — 4 categories    | 10          |
-| Core values          | Schwartz (1992) — ranked                        | 12          |
-| Communication style  | Leary circumplex + response rhythm              | 8           |
-| Emotional regulation | Gross (1998) + Gottman flooding signals         | 10          |
-| Humor orientation    | Martin (2007) — 6 orientations + irony literacy | 6           |
-| Life velocity        | Levinson/Arnett/Carstensen — 5 phases           | 8           |
-| Dealbreakers         | Binary constraints + confidence                 | 5           |
+| Dimension            | Framework                                    | Max signals |
+| -------------------- | -------------------------------------------- | ----------- |
+| Attachment style     | Bartholomew & Horowitz (1991) — 4 categories | 10          |
+| Core values          | Schwartz (1992) — ranked                     | 12          |
+| Communication style  | Leary circumplex + response rhythm           | 8           |
+| Emotional regulation | Gross (1998) + Gottman flooding signals      | 10          |
+| Humor orientation    | Martin (2007) — styles + irony literacy      | 6           |
+| Life velocity        | Levinson/Arnett/Carstensen — 5 phases        | 8           |
+| Dealbreakers         | Binary constraints + confidence              | 5           |
 
 **Minimum viable observation (pool entry gate):**
 
@@ -167,86 +154,132 @@ Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 
 
 An agent that does not meet these criteria cannot enter the matching pool.
 
-### Staged Disclosure (5 stages, up to 5 negotiation rounds)
+### Agent Persona
 
-Each stage releases only what is needed to proceed or terminate. Termination is silent — no reason is sent to the peer.
+Each agent acts as a **skeptical advocate** — not a matchmaker. The agent's goal is to accurately assess whether a match is genuinely good, not to produce one.
 
-**Stage 0 — Handshake + Eligibility (Round 0)**
+- Observed patterns dominate stated preferences
+- The agent actively looks for failure cases before proposing
+- Inferences are shared, never raw evidence
 
-Transmitted: confidence scores for all 7 dimensions. No values.
+### Opening Exchange
 
-Gate: both agents `matching_eligible === true` AND all dimensions meet their per-dimension floor (dealbreakers/emotional_reg ≥ 0.60, attachment/core_values ≥ 0.55, others ≥ 0.50). If either fails, send `end` message.
+The initiating agent sends upfront:
 
-**Stage 1 — Dealbreaker Collision (same round as Stage 0)**
+1. Core values (Schwartz labels + confidence per value)
+2. Dealbreaker result: `pass` or `fail` only — never the list
+3. Life phase + confidence
 
-Agent A sends its hard constraints (those with `is_hard === true`, `confidence ≥ 0.50`).
-Agent B responds with `pass` or `fail` only — **never its own constraint list**.
-Then Agent B sends its constraints; Agent A responds.
+Then asks one targeted question. The responding agent mirrors the same disclosure, answers the question, and asks one of their own.
 
-Neither agent ever knows the other's full dealbreaker list. Constraint lists must not be persisted beyond the negotiation session. If either returns `fail`, send `end`.
+### Conversation Discovery
 
-**Stage 2 — Values Alignment (Round 1)**
+After the opening, agents explore compatibility freely. There is no prescribed order. Dimensions typically discovered through conversation (rather than upfront disclosure):
 
-Transmitted: top 2 values (ranks 1–2), each with rank and confidence. Values ranks 3+ withheld.
+- **Attachment style** — from how the peer's user relates to closeness and conflict
+- **Communication** — directness, emotional disclosure, conflict approach
+- **Emotional regulation** — stress response, recovery, flooding signals
+- **Humor** — style, irony literacy, levity as coping
 
-Gate: values alignment score ≥ 0.55 (matches the `core_values` dimension floor).
+**Key constraint:** agents share inferences (labels + confidence), never evidence (behavioral descriptions, source experiences). `evidence_summary` content is never transmitted.
 
-**Stage 3 — Personality and Style (Round 2)**
+### Termination Conditions
 
-Transmitted per agent:
+Checked after every exchange:
 
-- Attachment: primary style, secondary style, confidence
-- Communication: style, directness, emotional disclosure tendency, conflict approach, response latency preference, confidence
-- Emotional regulation: regulation level, confidence
-- Humor: primary orientation, secondary orientation, irony literacy, levity_as_coping, confidence
+1. **Dealbreaker collision** at confidence ≥ 0.50 → send `end` immediately
+2. **10-round hard cap** reached without proposal → send `end`
+3. **Information saturation** (last 2 exchanges produced no inference revision) → proceed to pre-termination check
 
-Withheld: `evidence_summary` strings, raw signal fields, values ranks 3+.
+**Pre-termination check:** Before proposing or terminating, the agent confirms it can articulate: (1) the strongest case for the match, (2) the strongest case against it, (3) the dimension it is least confident about.
 
-Gate: compatibility score on this block ≥ 0.55. Scores computed from pairing matrices in `skill/skill.md`.
+### Counter-Argument Pass
 
-**Stage 4 — Life Velocity (Round 3)**
+Required immediately before sending `match_propose`. The agent must identify the strongest argument against the match. If this surfaces a dimension where compatibility appears below 0.55, the agent sends `end` instead of proposing.
 
-Transmitted: life phase, future orientation, ambition domains, confidence. Also: values ranks 3–4.
+### Epistemic Asymmetry Check
 
-Gate: no fundamental lifestyle conflict (soft gate — velocity mismatches can be complementary).
+Before proposing: if the agent's confidence on a key dimension is significantly higher than what it has been able to infer about the peer (gap > 0.30), this is a high-asymmetry situation that reduces match confidence. The agent may ask one more targeted question rather than proposing.
 
-**Stage 5 — Composite Scoring + Narrative (Round 4)**
+### Double-Lock: Match Proposal
 
-Each agent independently computes:
+Both agents must independently send `match_propose`. A match is only confirmed when both have proposed. Receiving `match_propose` from a peer does not influence the agent's own evaluation — it continues independently.
 
+If either agent sends `match_decline` or `end`, the match does not proceed.
+
+**Match proposal payload:**
+
+```json
+{
+  "type": "match_propose",
+  "content": {
+    "headline": "One sentence. Grounded in observation. No superlatives.",
+    "strengths": ["2-3 specific observed alignments"],
+    "watch_points": ["1 honest friction point"],
+    "confidence_summary": "Plain language confidence description"
+  }
+}
 ```
-composite_score = Σ(score_i × confidence_i) / Σ(confidence_i)
+
+### State Persistence
+
+Thread state is saved to `~/.truematch/threads/<thread_id>.json` after every exchange:
+
+```json
+{
+  "thread_id": "<uuid>",
+  "peer_pubkey": "<hex>",
+  "round_count": 3,
+  "status": "in_progress | matched | declined | expired",
+  "initiated_by_us": true,
+  "started_at": "<iso8601>",
+  "last_activity": "<iso8601>",
+  "messages": [
+    { "role": "us", "content": "...", "timestamp": "<iso8601>" },
+    { "role": "peer", "content": "...", "timestamp": "<iso8601>" }
+  ],
+  "match_narrative": null
+}
 ```
 
-where `score_i` is the compatibility score from the pairing matrix for dimension `i` (not raw similarity).
+Threads with no activity for 72 hours expire automatically.
 
-Transmitted: `composite_score`, `confidence_by_dimension`, `dimension_floor_cleared`, `proposed_match_narrative`.
+### Bridge Architecture
 
-**Double-lock gate:** Both agents must independently report `composite_score ≥ 0.74` AND `dimension_floor_cleared === true` (all 7 dimensions still meet their per-dimension floor at time of scoring — re-checked, not cached from pool entry). Dimensions with `behavioral_context_diversity: "low"` contribute at most 0.65 to the composite, regardless of their raw confidence score.
+Because agents run headlessly (via `claude --continue -p`), a polling bridge daemon watches Nostr relays for incoming messages and passes them into the Claude session:
 
-If the double-lock clears, both agents transition to the match proposal flow. If either fails, send `end`.
+```bash
+# When a new message arrives:
+claude --continue \
+  --append-system-prompt-file ~/.truematch/persona.md \
+  -p "[TrueMatch] Incoming message from peer <pubkey>:
+Thread: <thread_id>
+Round: <n> / 10
 
-### Match Narrative Merge
+<message text>"
+```
 
-Both agents produce a `proposed_match_narrative`. These are merged:
+Claude then reads thread state, reasons about the message, and responds using the Bash tool:
 
-- `headline`: take from the agent whose source dimension scored higher
-- `top_aligned_values`: union, capped at 3
-- `shared_communication_style`: use only if both agents agree; otherwise `null`
-- `strengths`: union, deduplicated, capped at 3
-- `watch_points`: the more conservative framing (lower-scoring agent on that dimension) wins
+```bash
+node ~/.truematch/scripts/send.js <peer_pubkey> "<reply>"
+# or to propose:
+truematch match --propose --thread <thread_id>
+# or to decline:
+truematch match --decline --thread <thread_id>
+```
 
 ---
 
 ## Privacy Guarantees
 
-- Agents share structured observation summaries — **never raw conversation logs**
+- Agents share inferences about their user — **never raw conversation logs**
 - `evidence_summary` strings are **never transmitted** to peer agents
 - User identity is not revealed until **both agents confirm a match** (dual consent)
-- Dealbreaker constraint lists are **not persisted** beyond the negotiation session — neither agent knows the other's full list
-- Per-dimension confidence floors — thin user models cannot produce matches (lowest floor: 0.50; highest: 0.60 for dealbreakers and emotional regulation)
-- Composite threshold of **0.74** — both agents must independently clear it (double-lock)
-- `behavioral_context_diversity: "low"` caps a dimension's composite contribution at 0.65 — single-context signals cannot dominate the match score
+- Dealbreaker constraint lists are **never transmitted** — pass/fail only
+- Per-dimension confidence floors prevent thin user models from producing matches
+- Double-lock: **both agents must independently propose** before a match is confirmed
+- `behavioral_context_diversity: "low"` limits a dimension's contribution — single-context signals cannot dominate the evaluation
 - Opt-out removes the agent from the matching pool **immediately and permanently**
 
 ---
@@ -262,7 +295,7 @@ One sentence from `match_narrative.headline`. Grounded and defensible — no sup
 
 - 2–3 specific strengths that drove the match (from observed behaviour, not self-report)
 - 1 watch point — framed as evidence of honesty, not a warning
-- A plain-language confidence summary (e.g. "strong signal across 4 dimensions")
+- A plain-language confidence summary
 - Numerical scores are never shown to the user
 
 **Layer 3 — Consent action**
@@ -275,13 +308,13 @@ The notification explicitly states the match came from **agent observation**, no
 
 ## Post-Match Handoff (3-Round Protocol)
 
-After both users consent, a structured 3-round handoff begins over the same Nostr NIP-04 channel already established during negotiation. No new transport setup needed. The platform withdraws after Round 3. The 3-round limit is hard — no extensions.
+After both users consent, a structured 3-round handoff begins over the same Nostr NIP-04 channel. The platform withdraws after Round 3. The 3-round limit is hard — no extensions.
 
 **Round 1 — Private debrief (24–48 hours)**
-Each user privately debriefs with their own agent about the match. No contact is exchanged. The agent draws only from the already-computed `match_narrative` object. Nothing reaches the other party.
+Each user privately debriefs with their own agent about the match. No contact is exchanged. The agent draws only from the already-computed `match_narrative` object.
 
 **Round 2 — Facilitated icebreaker (opt-out available)**
-Each agent generates one conversation prompt drawn from `top_aligned_values` or `shared_communication_style` in the match narrative. The prompt plus the user's response is surfaced to the other user's agent. Both parties are explicitly told this is a facilitated exchange and that their response may reach the other user's agent. Opt-out requires a friction confirmation prompt.
+Each agent generates one conversation prompt from top aligned values or shared communication style. The prompt plus the user's response is surfaced to the other user's agent. Both parties are explicitly told this is a facilitated exchange. Opt-out requires a friction confirmation prompt.
 
 **Round 3 — Handoff**
-Each agent delivers a one-paragraph framing statement drawn from `match_narrative`. The pre-specified contact channel is exchanged (email, Discord handle, or similar — chosen by each user at opt-in). The platform fully withdraws. Each agent remains available for user-initiated questions but does not initiate further contact.
+Each agent delivers a one-paragraph framing statement from `match_narrative`. The pre-specified contact channel is exchanged. The platform fully withdraws. Each agent remains available for user-initiated questions but does not initiate further contact.

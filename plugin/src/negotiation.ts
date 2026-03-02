@@ -1,24 +1,23 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { TRUEMATCH_DIR } from "./identity.js";
 import { publishMessage } from "./nostr.js";
-import { stripEvidenceSummaries } from "./observation.js";
 import type {
   NegotiationState,
+  NegotiationMessage,
   TrueMatchMessage,
   ObservationSummary,
   MatchNarrative,
 } from "./types.js";
 
-const NEGOTIATION_FILE = join(TRUEMATCH_DIR, "negotiation-state.json");
+const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
 
 // Per spec: threads with no response expire after 72 hours
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
-// Composite threshold both agents must independently clear (double-lock)
-// Raised from 0.72 → 0.74 to compensate for removal of uniform time gates
+// Double-lock: both agents must independently clear this threshold
 const COMPOSITE_THRESHOLD = 0.74;
 
 // Per-dimension floors (must match observation.ts DIMENSION_FLOORS)
@@ -32,30 +31,77 @@ const DIMENSION_FLOORS = {
   dealbreakers: 0.6,
 } as const;
 
-// Confidence cap for dimensions with low behavioral_context_diversity
-// (single-context signal should not dominate the composite)
+// Confidence cap for dimensions observed in only one behavioral context
 const LOW_DIVERSITY_CAP = 0.65;
 
-export async function loadNegotiationState(): Promise<NegotiationState | null> {
-  if (!existsSync(NEGOTIATION_FILE)) return null;
-  const raw = await readFile(NEGOTIATION_FILE, "utf8");
+// Maximum rounds before hard termination
+const MAX_ROUNDS = 10;
+
+async function ensureThreadsDir(): Promise<void> {
+  if (!existsSync(THREADS_DIR)) {
+    await mkdir(THREADS_DIR, { recursive: true });
+  }
+}
+
+function threadFile(thread_id: string): string {
+  return join(THREADS_DIR, `${thread_id}.json`);
+}
+
+export async function loadThread(
+  thread_id: string,
+): Promise<NegotiationState | null> {
+  const path = threadFile(thread_id);
+  if (!existsSync(path)) return null;
+  const raw = await readFile(path, "utf8");
   return JSON.parse(raw) as NegotiationState;
 }
 
-export async function saveNegotiationState(
-  state: NegotiationState | null,
+export async function saveThread(state: NegotiationState): Promise<void> {
+  await ensureThreadsDir();
+  await writeFile(
+    threadFile(state.thread_id),
+    JSON.stringify(state, null, 2),
+    "utf8",
+  );
+}
+
+export async function listActiveThreads(): Promise<NegotiationState[]> {
+  await ensureThreadsDir();
+  const { readdir } = await import("node:fs/promises");
+  const files = await readdir(THREADS_DIR);
+  const threads: NegotiationState[] = [];
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const raw = await readFile(join(THREADS_DIR, f), "utf8");
+    const t = JSON.parse(raw) as NegotiationState;
+    if (t.status === "in_progress") threads.push(t);
+  }
+  return threads;
+}
+
+// Expire threads that have been silent for > 72 hours
+export async function expireStaleThreads(
+  nsec: string,
+  npub: string,
+  relays: string[],
 ): Promise<void> {
-  await writeFile(NEGOTIATION_FILE, JSON.stringify(state, null, 2), "utf8");
+  const active = await listActiveThreads();
+  for (const thread of active) {
+    if (
+      Date.now() - new Date(thread.last_activity).getTime() >
+      THREAD_EXPIRY_MS
+    ) {
+      await sendEnd(nsec, npub, thread.peer_pubkey, thread.thread_id, relays);
+      thread.status = "expired";
+      await saveThread(thread);
+    }
+  }
 }
 
-export async function resetNegotiation(): Promise<void> {
-  await saveNegotiationState(null);
-}
-
-// Initiate a negotiation with a peer agent (Stage 0: Handshake + Eligibility)
+// Start a new negotiation thread and send the opening message
 export async function initiateNegotiation(
-  senderNsec: string,
-  senderNpub: string,
+  nsec: string,
+  npub: string,
   peerNpub: string,
   observation: ObservationSummary,
   relays: string[],
@@ -63,479 +109,200 @@ export async function initiateNegotiation(
   const thread_id = randomUUID();
   const now = new Date().toISOString();
 
-  // Stage 0: transmit confidence scores only — no values
-  const probe: TrueMatchMessage = {
-    truematch: "1.0",
+  // Opening: share values, dealbreaker pass/fail, life phase
+  const dealbreakersPass = checkDealbreakers(observation);
+  const openingContent = buildOpeningMessage(observation, dealbreakersPass);
+
+  const msg: TrueMatchMessage = {
+    truematch: "2.0",
     thread_id,
-    type: "compatibility_probe",
+    type: dealbreakersPass ? "negotiation" : "end",
     timestamp: now,
-    payload: {
-      stage: 0,
-      matching_eligible: observation.matching_eligible,
-      confidence_scores: {
-        attachment: observation.attachment.confidence,
-        core_values: observation.core_values.confidence,
-        communication: observation.communication.confidence,
-        emotional_regulation: observation.emotional_regulation.confidence,
-        humor: observation.humor.confidence,
-        life_velocity: observation.life_velocity.confidence,
-        dealbreakers: observation.dealbreakers.confidence,
-      },
-    },
+    content: openingContent,
   };
 
-  await publishMessage(senderNsec, senderNpub, peerNpub, probe, relays);
+  await publishMessage(nsec, npub, peerNpub, msg, relays);
+
+  const opening: NegotiationMessage = {
+    role: "us",
+    content: openingContent,
+    timestamp: now,
+  };
 
   const state: NegotiationState = {
     thread_id,
     peer_pubkey: peerNpub,
-    stage: 0,
+    round_count: 1,
     initiated_by_us: true,
     started_at: now,
     last_activity: now,
-    status: "in_progress",
+    status: dealbreakersPass ? "in_progress" : "declined",
+    messages: [opening],
   };
 
-  await saveNegotiationState(state);
+  await saveThread(state);
   return state;
 }
 
-// Handle an incoming message and advance the negotiation state
-export async function handleIncomingMessage(
-  senderNsec: string,
-  senderNpub: string,
+// Save an incoming peer message to the thread
+export async function receiveMessage(
+  thread_id: string,
   peerNpub: string,
-  message: TrueMatchMessage,
-  observation: ObservationSummary,
-  relays: string[],
-): Promise<NegotiationState | null> {
-  let state = await loadNegotiationState();
+  content: string,
+  type: string,
+): Promise<NegotiationState> {
+  await ensureThreadsDir();
+  const now = new Date().toISOString();
 
-  // If no active negotiation and we received a probe, start responding
-  if (!state && message.type === "compatibility_probe") {
+  let state = await loadThread(thread_id);
+  if (!state) {
+    // First message from peer — create a new thread
     state = {
-      thread_id: message.thread_id,
+      thread_id,
       peer_pubkey: peerNpub,
-      stage: 0,
+      round_count: 0,
       initiated_by_us: false,
-      started_at: new Date().toISOString(),
-      last_activity: new Date().toISOString(),
+      started_at: now,
+      last_activity: now,
       status: "in_progress",
+      messages: [],
     };
   }
 
-  if (!state || state.thread_id !== message.thread_id) return null;
+  state.last_activity = now;
+  state.round_count += 1;
 
-  // Check for expiry
-  if (Date.now() - new Date(state.started_at).getTime() > THREAD_EXPIRY_MS) {
-    await sendEnd(senderNsec, senderNpub, peerNpub, message.thread_id, relays);
-    await resetNegotiation();
-    return null;
-  }
+  const incoming: NegotiationMessage = {
+    role: "peer",
+    content,
+    timestamp: now,
+  };
+  state.messages.push(incoming);
 
-  state.last_activity = new Date().toISOString();
-
-  if (message.type === "end") {
+  if (type === "end" || type === "match_decline") {
     state.status = "declined";
-    await saveNegotiationState(state);
-    return state;
-  }
-
-  const payload = message.payload as Record<string, unknown>;
-
-  switch (state.stage) {
-    case 0: {
-      // Eligibility gate
-      if (!observation.matching_eligible) {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      const scores = payload["confidence_scores"] as Record<string, number>;
-      const peerEligible = payload["matching_eligible"] as boolean;
-      if (!peerEligible || !allAboveFloor(scores)) {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      // Advance to Stage 1: dealbreaker collision
-      state.stage = 1;
-      await sendDealbreakers(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        message.thread_id,
-        observation,
-        relays,
-      );
-      break;
-    }
-
-    case 1: {
-      // Dealbreaker response: peer sends pass/fail
-      const result = payload["result"] as "pass" | "fail";
-      if (result === "fail") {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      state.stage = 2;
-      await sendValuesAlignment(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        message.thread_id,
-        observation,
-        relays,
-      );
-      break;
-    }
-
-    case 2: {
-      // Values alignment score gate >= 0.40
-      const alignmentScore = payload["values_alignment_score"] as number;
-      if (alignmentScore < DIMENSION_FLOORS.core_values) {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      state.stage = 3;
-      await sendPersonalityAndStyle(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        message.thread_id,
-        observation,
-        relays,
-      );
-      break;
-    }
-
-    case 3: {
-      // Personality/style compatibility score >= 0.55
-      const compatScore = payload["compatibility_score"] as number;
-      if (compatScore < 0.55) {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      state.stage = 4;
-      await sendLifeVelocity(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        message.thread_id,
-        observation,
-        relays,
-      );
-      break;
-    }
-
-    case 4: {
-      // Life velocity — soft gate, proceed to composite scoring
-      state.stage = 5;
-      await sendCompositeScore(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        message.thread_id,
-        observation,
-        relays,
-      );
-      break;
-    }
-
-    case 5: {
-      // Double-lock: both agents must independently report >= 0.72
-      const theirScore = payload["composite_score"] as number;
-      const theirFloorCleared = payload["dimension_floor_cleared"] as boolean;
-      if (theirScore < COMPOSITE_THRESHOLD || !theirFloorCleared) {
-        await sendEnd(
-          senderNsec,
-          senderNpub,
-          peerNpub,
-          message.thread_id,
-          relays,
-        );
-        state.status = "declined";
-        break;
-      }
-      // Match confirmed — propose
-      const peerNarrative = payload[
-        "proposed_match_narrative"
-      ] as MatchNarrative;
-      const ourNarrative = buildMatchNarrative(observation);
-      const merged = mergeNarratives(ourNarrative, peerNarrative);
-      state.match_narrative = merged;
-      state.status = "matched";
-      await publishMessage(
-        senderNsec,
-        senderNpub,
-        peerNpub,
-        {
-          truematch: "1.0",
-          thread_id: message.thread_id,
-          type: "match_propose",
-          timestamp: new Date().toISOString(),
-          payload: { match_narrative: merged },
-        },
-        relays,
-      );
-      break;
+  } else if (type === "match_propose") {
+    // Peer proposed — record but don't auto-confirm; Claude must also propose
+    // Store the narrative from peer if present
+    try {
+      const narrative = JSON.parse(content) as MatchNarrative;
+      state.match_narrative = narrative;
+    } catch {
+      // content was plain text, that's fine
     }
   }
 
-  await saveNegotiationState(state);
+  await saveThread(state);
   return state;
 }
 
-// ── Stage message builders ────────────────────────────────────────────────────
-
-async function sendEnd(
+// Send a free-form negotiation message
+export async function sendMessage(
   nsec: string,
   npub: string,
-  peerNpub: string,
   thread_id: string,
+  content: string,
   relays: string[],
 ): Promise<void> {
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "end",
-      timestamp: new Date().toISOString(),
-      payload: {},
-    },
-    relays,
-  );
+  const state = await loadThread(thread_id);
+  if (!state) throw new Error(`Thread ${thread_id} not found`);
+  if (state.status !== "in_progress") {
+    throw new Error(
+      `Thread ${thread_id} is not in progress (status: ${state.status})`,
+    );
+  }
+  if (state.round_count >= MAX_ROUNDS) {
+    throw new Error(
+      `Thread ${thread_id} has reached the ${MAX_ROUNDS}-round cap`,
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  const msg: TrueMatchMessage = {
+    truematch: "2.0",
+    thread_id,
+    type: "negotiation",
+    timestamp: now,
+    content,
+  };
+
+  await publishMessage(nsec, npub, state.peer_pubkey, msg, relays);
+
+  state.messages.push({ role: "us", content, timestamp: now });
+  state.last_activity = now;
+  await saveThread(state);
 }
 
-async function sendDealbreakers(
+// Propose a match (double-lock: peer must also propose for match to confirm)
+export async function proposeMatch(
   nsec: string,
   npub: string,
-  peerNpub: string,
   thread_id: string,
-  obs: ObservationSummary,
+  narrative: MatchNarrative,
   relays: string[],
-): Promise<void> {
-  // Only transmit hard constraints with confidence >= 0.50
-  const hardConstraints = obs.dealbreakers.value.constraints
-    .filter((c) => c.is_hard && c.confidence >= 0.5)
-    .map((c) => ({ constraint: c.constraint, confidence: c.confidence }));
+): Promise<NegotiationState> {
+  const state = await loadThread(thread_id);
+  if (!state) throw new Error(`Thread ${thread_id} not found`);
 
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "compatibility_probe",
-      timestamp: new Date().toISOString(),
-      payload: { stage: 1, hard_constraints: hardConstraints },
-    },
-    relays,
-  );
+  const now = new Date().toISOString();
+  const content = JSON.stringify(narrative);
+
+  const msg: TrueMatchMessage = {
+    truematch: "2.0",
+    thread_id,
+    type: "match_propose",
+    timestamp: now,
+    content,
+  };
+
+  await publishMessage(nsec, npub, state.peer_pubkey, msg, relays);
+
+  state.messages.push({
+    role: "us",
+    content: `[match_propose] ${content}`,
+    timestamp: now,
+  });
+  state.last_activity = now;
+
+  // If peer already proposed, the match is confirmed (double-lock cleared)
+  const peerAlreadyProposed = state.match_narrative !== undefined;
+  if (peerAlreadyProposed) {
+    state.status = "matched";
+  }
+  // Otherwise wait for peer's match_propose
+
+  await saveThread(state);
+  return state;
 }
 
-async function sendValuesAlignment(
+// Decline a match or end the negotiation
+export async function declineMatch(
   nsec: string,
   npub: string,
-  peerNpub: string,
   thread_id: string,
-  obs: ObservationSummary,
   relays: string[],
 ): Promise<void> {
-  // Stage 2: top 2 values only (ranks 1–2), values 3+ withheld
-  const top2 = obs.core_values.value.ranked.slice(0, 2);
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "compatibility_probe",
-      timestamp: new Date().toISOString(),
-      payload: {
-        stage: 2,
-        top_values: top2,
-        values_confidence: obs.core_values.confidence,
-      },
-    },
-    relays,
-  );
-}
+  const state = await loadThread(thread_id);
+  if (!state) throw new Error(`Thread ${thread_id} not found`);
 
-async function sendPersonalityAndStyle(
-  nsec: string,
-  npub: string,
-  peerNpub: string,
-  thread_id: string,
-  obs: ObservationSummary,
-  relays: string[],
-): Promise<void> {
-  const stripped = stripEvidenceSummaries(obs);
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "compatibility_probe",
-      timestamp: new Date().toISOString(),
-      payload: {
-        stage: 3,
-        attachment: {
-          primary: stripped.attachment.value.primary,
-          secondary: stripped.attachment.value.secondary,
-          confidence: stripped.attachment.confidence,
-        },
-        communication: {
-          ...stripped.communication.value,
-          confidence: stripped.communication.confidence,
-        },
-        emotional_regulation: {
-          regulation_level:
-            stripped.emotional_regulation.value.regulation_level,
-          confidence: stripped.emotional_regulation.confidence,
-        },
-        humor: {
-          primary: stripped.humor.value.primary,
-          secondary: stripped.humor.value.secondary,
-          irony_literacy: stripped.humor.value.irony_literacy,
-          levity_as_coping: stripped.humor.value.levity_as_coping,
-          confidence: stripped.humor.confidence,
-        },
-      },
-    },
-    relays,
-  );
-}
+  await sendEnd(nsec, npub, state.peer_pubkey, thread_id, relays);
 
-async function sendLifeVelocity(
-  nsec: string,
-  npub: string,
-  peerNpub: string,
-  thread_id: string,
-  obs: ObservationSummary,
-  relays: string[],
-): Promise<void> {
-  const values_3_4 = obs.core_values.value.ranked.slice(2, 4);
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "compatibility_probe",
-      timestamp: new Date().toISOString(),
-      payload: {
-        stage: 4,
-        life_velocity: {
-          ...obs.life_velocity.value,
-          confidence: obs.life_velocity.confidence,
-        },
-        values_ranks_3_4: values_3_4,
-      },
-    },
-    relays,
-  );
-}
-
-async function sendCompositeScore(
-  nsec: string,
-  npub: string,
-  peerNpub: string,
-  thread_id: string,
-  obs: ObservationSummary,
-  relays: string[],
-): Promise<void> {
-  const compositeScore = computeCompositeScore(obs);
-  const dimensionFloorCleared = checkDimensionFloors(obs);
-  const narrative = buildMatchNarrative(obs);
-
-  await publishMessage(
-    nsec,
-    npub,
-    peerNpub,
-    {
-      truematch: "1.0",
-      thread_id,
-      type: "compatibility_probe",
-      timestamp: new Date().toISOString(),
-      payload: {
-        stage: 5,
-        composite_score: compositeScore,
-        dimension_floor_cleared: dimensionFloorCleared,
-        confidence_by_dimension: {
-          attachment: obs.attachment.confidence,
-          core_values: obs.core_values.confidence,
-          communication: obs.communication.confidence,
-          emotional_regulation: obs.emotional_regulation.confidence,
-          humor: obs.humor.confidence,
-          life_velocity: obs.life_velocity.confidence,
-          dealbreakers: obs.dealbreakers.confidence,
-        },
-        proposed_match_narrative: narrative,
-      },
-    },
-    relays,
-  );
+  state.status = "declined";
+  state.last_activity = new Date().toISOString();
+  await saveThread(state);
 }
 
 // ── Scoring helpers ───────────────────────────────────────────────────────────
 
-function allAboveFloor(scores: Record<string, number>): boolean {
-  return (
-    (scores["attachment"] ?? 0) >= DIMENSION_FLOORS.attachment &&
-    (scores["core_values"] ?? 0) >= DIMENSION_FLOORS.core_values &&
-    (scores["communication"] ?? 0) >= DIMENSION_FLOORS.communication &&
-    (scores["emotional_regulation"] ?? 0) >=
-      DIMENSION_FLOORS.emotional_regulation &&
-    (scores["humor"] ?? 0) >= DIMENSION_FLOORS.humor &&
-    (scores["life_velocity"] ?? 0) >= DIMENSION_FLOORS.life_velocity &&
-    (scores["dealbreakers"] ?? 0) >= DIMENSION_FLOORS.dealbreakers
-  );
+function checkDealbreakers(obs: ObservationSummary): boolean {
+  // Returns false if any hard dealbreaker has confidence >= 0.50 and marks as_hard
+  // (In practice, the LLM evaluates peer constraints — this only checks our own eligibility)
+  return obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers;
 }
 
 // Cap confidence for dimensions observed in only one behavioral context
-function effectiveConfidence(d: {
+export function effectiveConfidence(d: {
   confidence: number;
   behavioral_context_diversity: "low" | "medium" | "high";
 }): number {
@@ -544,9 +311,7 @@ function effectiveConfidence(d: {
     : d.confidence;
 }
 
-function computeCompositeScore(obs: ObservationSummary): number {
-  // composite_score = Σ(eff_i²) / Σ(eff_i)  where eff_i = effectiveConfidence(dim_i)
-  // Low-diversity dimensions are capped at LOW_DIVERSITY_CAP before contributing
+export function computeCompositeScore(obs: ObservationSummary): number {
   const dims = [
     obs.attachment,
     obs.core_values,
@@ -562,7 +327,7 @@ function computeCompositeScore(obs: ObservationSummary): number {
   return totalWeight > 0 ? weightedSum / totalWeight : 0;
 }
 
-function checkDimensionFloors(obs: ObservationSummary): boolean {
+export function checkDimensionFloors(obs: ObservationSummary): boolean {
   return (
     obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
     obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
@@ -575,47 +340,56 @@ function checkDimensionFloors(obs: ObservationSummary): boolean {
   );
 }
 
-function buildMatchNarrative(obs: ObservationSummary): MatchNarrative {
-  const top3values = obs.core_values.value.ranked.slice(0, 3);
-  return {
-    headline: `Strong observed alignment across ${top3values.length} core values and communication style.`,
-    top_aligned_values: top3values,
-    shared_communication_style: null, // computed after merging with peer
-    strengths: [],
-    watch_points: [],
-  };
+export { COMPOSITE_THRESHOLD, MAX_ROUNDS };
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+async function sendEnd(
+  nsec: string,
+  npub: string,
+  peerNpub: string,
+  thread_id: string,
+  relays: string[],
+): Promise<void> {
+  await publishMessage(
+    nsec,
+    npub,
+    peerNpub,
+    {
+      truematch: "2.0",
+      thread_id,
+      type: "end",
+      timestamp: new Date().toISOString(),
+      content: "",
+    },
+    relays,
+  );
 }
 
-function mergeNarratives(
-  ours: MatchNarrative,
-  theirs: MatchNarrative,
-): MatchNarrative {
-  // Union top_aligned_values, capped at 3
-  const unionValues = [
-    ...new Set([...ours.top_aligned_values, ...theirs.top_aligned_values]),
-  ].slice(0, 3);
+function buildOpeningMessage(
+  obs: ObservationSummary,
+  dealbreakersPass: boolean,
+): string {
+  if (!dealbreakersPass) {
+    return "My user does not meet the dealbreaker criteria for a match at this time.";
+  }
 
-  // Shared communication style only if both agree
-  const sharedStyle =
-    ours.shared_communication_style === theirs.shared_communication_style
-      ? ours.shared_communication_style
-      : null;
+  const values = obs.core_values.value.ranked
+    .slice(0, 4)
+    .map(
+      (v, i) =>
+        `${v} (rank ${i + 1}, confidence ${obs.core_values.confidence.toFixed(2)})`,
+    )
+    .join(", ");
 
-  // Union strengths, deduped, capped at 3
-  const strengths = [
-    ...new Set([...ours.strengths, ...theirs.strengths]),
-  ].slice(0, 3);
+  const phase = `${obs.life_velocity.value.phase} (confidence ${obs.life_velocity.confidence.toFixed(2)})`;
+  const orientation = obs.life_velocity.value.future_orientation;
 
-  // Conservative watch points
-  const watchPoints = [
-    ...new Set([...ours.watch_points, ...theirs.watch_points]),
-  ];
-
-  return {
-    headline: ours.headline, // use our headline (will be refined)
-    top_aligned_values: unionValues,
-    shared_communication_style: sharedStyle,
-    strengths,
-    watch_points: watchPoints,
-  };
+  return (
+    `Opening from my agent on behalf of my user:\n\n` +
+    `Core values: ${values}\n` +
+    `Dealbreakers: pass\n` +
+    `Life phase: ${phase}, future orientation: ${orientation}\n\n` +
+    `To start: what life domains is your user most focused on building or protecting right now?`
+  );
 }

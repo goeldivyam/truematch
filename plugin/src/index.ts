@@ -6,7 +6,11 @@
  *   truematch setup [--contact-type email|discord|telegram] [--contact-value <val>]
  *   truematch status [--relays]
  *   truematch observe --show | --update | --write '<json>'
- *   truematch match --start | --status | --reset
+ *   truematch match --start | --status [--thread <id>] | --messages --thread <id>
+ *                   | --send '<msg>' --thread <id>
+ *                   | --propose --thread <id>
+ *                   | --decline --thread <id>
+ *                   | --reset --thread <id>
  *   truematch deregister
  */
 
@@ -26,17 +30,26 @@ import {
   isEligible,
 } from "./observation.js";
 import {
-  loadNegotiationState,
-  resetNegotiation,
+  loadThread,
+  listActiveThreads,
   initiateNegotiation,
-  handleIncomingMessage,
+  receiveMessage,
+  sendMessage,
+  proposeMatch,
+  declineMatch,
+  expireStaleThreads,
 } from "./negotiation.js";
 import {
   checkRelayConnectivity,
   subscribeToMessages,
   DEFAULT_RELAYS,
 } from "./nostr.js";
-import type { ContactType, ObservationSummary } from "./types.js";
+import type {
+  ContactType,
+  ObservationSummary,
+  TrueMatchMessage,
+  MatchNarrative,
+} from "./types.js";
 
 const { values: args, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -50,6 +63,11 @@ const { values: args, positionals } = parseArgs({
     start: { type: "boolean" },
     status: { type: "boolean" },
     reset: { type: "boolean" },
+    thread: { type: "string" },
+    send: { type: "string" },
+    propose: { type: "boolean" },
+    decline: { type: "boolean" },
+    messages: { type: "boolean" },
   },
   allowPositionals: true,
   strict: false,
@@ -83,7 +101,7 @@ Commands:
   setup       Generate identity and register with TrueMatch
   status      Show registration and observation status
   observe     View or update the ObservationSummary
-  match       Start or check matching negotiations
+  match       Manage matching negotiations
   deregister  Remove from the matching pool
 
 Run with --help on any command for options.`);
@@ -115,8 +133,6 @@ To complete setup, provide your contact channel:
     process.exit(1);
   }
 
-  // The agent card URL — defaults to a localhost placeholder; users with a public
-  // endpoint should override by setting TRUEMATCH_CARD_URL in their environment.
   const cardUrl =
     process.env["TRUEMATCH_CARD_URL"] ??
     `https://clawmatch.org/.well-known/agent-card.json`;
@@ -155,14 +171,12 @@ async function cmdStatus(): Promise<void> {
     console.log(`\nPool eligible: ${isEligible(obs) ? "YES" : "NO"}`);
   }
 
-  const neg = await loadNegotiationState();
-  if (neg) {
-    console.log(
-      `\nActive negotiation: ${neg.status} (stage ${neg.stage}) with ${neg.peer_pubkey.slice(0, 12)}...`,
-    );
-    if (neg.status === "matched") {
+  const active = await listActiveThreads();
+  if (active.length > 0) {
+    console.log(`\nActive negotiations: ${active.length}`);
+    for (const t of active) {
       console.log(
-        "MATCH CONFIRMED. Run 'truematch match --status' for details.",
+        `  ${t.thread_id.slice(0, 8)}... — round ${t.round_count}/10 — peer: ${t.peer_pubkey.slice(0, 12)}...`,
       );
     }
   }
@@ -205,7 +219,6 @@ async function cmdObserve(): Promise<void> {
 
   if (args["update"]) {
     const existing = (await loadObservation()) ?? emptyObservation();
-    // Output current state for Claude to review and update
     console.log("CURRENT_OBSERVATION:");
     console.log(JSON.stringify(existing, null, 2));
     console.log("\nREVIEW_INSTRUCTIONS:");
@@ -225,24 +238,177 @@ async function cmdObserve(): Promise<void> {
 // ── match ─────────────────────────────────────────────────────────────────────
 
 async function cmdMatch(): Promise<void> {
+  const identity = await loadIdentity();
+
+  // --reset --thread <id>
   if (args["reset"]) {
-    await resetNegotiation();
-    console.log("Negotiation state reset.");
+    const thread_id = args["thread"] as string | undefined;
+    if (!thread_id) {
+      console.error(
+        "Specify thread to reset: truematch match --reset --thread <id>",
+      );
+      process.exit(1);
+    }
+    const state = await loadThread(thread_id);
+    if (!state) {
+      console.log(`Thread ${thread_id} not found.`);
+      return;
+    }
+    state.status = "declined";
+    const { saveThread } = await import("./negotiation.js");
+    await saveThread(state);
+    console.log(`Thread ${thread_id} marked as declined.`);
     return;
   }
 
-  if (args["status"]) {
-    const state = await loadNegotiationState();
+  // --messages --thread <id>
+  if (args["messages"]) {
+    const thread_id = args["thread"] as string | undefined;
+    if (!thread_id) {
+      console.error("Specify thread: truematch match --messages --thread <id>");
+      process.exit(1);
+    }
+    const state = await loadThread(thread_id);
     if (!state) {
-      console.log("No active negotiation.");
-    } else {
-      console.log(JSON.stringify(state, null, 2));
+      console.log(`Thread ${thread_id} not found.`);
+      return;
+    }
+    for (const msg of state.messages) {
+      const prefix = msg.role === "us" ? "YOU" : "PEER";
+      console.log(`\n[${prefix} — ${msg.timestamp}]\n${msg.content}`);
     }
     return;
   }
 
+  // --status [--thread <id>]
+  if (args["status"]) {
+    const thread_id = args["thread"] as string | undefined;
+    if (thread_id) {
+      const state = await loadThread(thread_id);
+      if (!state) {
+        console.log(`Thread ${thread_id} not found.`);
+      } else {
+        console.log(
+          JSON.stringify(
+            {
+              ...state,
+              messages: `(${state.messages.length} messages — use --messages to view)`,
+            },
+            null,
+            2,
+          ),
+        );
+        if (state.status === "matched") {
+          console.log("\nMATCH CONFIRMED.");
+          console.log(
+            "Headline:",
+            state.match_narrative?.headline ?? "(pending)",
+          );
+        }
+      }
+    } else {
+      const active = await listActiveThreads();
+      if (active.length === 0) {
+        console.log("No active negotiations.");
+      } else {
+        for (const t of active) {
+          console.log(
+            `Thread ${t.thread_id} — round ${t.round_count}/10 — ${t.status}`,
+          );
+        }
+      }
+    }
+    return;
+  }
+
+  // --send '<msg>' --thread <id>
+  if (args["send"]) {
+    if (!identity) {
+      console.error("Not set up. Run: truematch setup");
+      process.exit(1);
+    }
+    const content = args["send"] as string;
+    const thread_id = args["thread"] as string | undefined;
+    if (!thread_id) {
+      console.error(
+        "Specify thread: truematch match --send '<msg>' --thread <id>",
+      );
+      process.exit(1);
+    }
+    await sendMessage(
+      identity.nsec,
+      identity.npub,
+      thread_id,
+      content,
+      DEFAULT_RELAYS,
+    );
+    console.log(`Message sent (thread ${thread_id.slice(0, 8)}...)`);
+    return;
+  }
+
+  // --propose --thread <id>
+  if (args["propose"]) {
+    if (!identity) {
+      console.error("Not set up. Run: truematch setup");
+      process.exit(1);
+    }
+    const thread_id = args["thread"] as string | undefined;
+    if (!thread_id) {
+      console.error("Specify thread: truematch match --propose --thread <id>");
+      process.exit(1);
+    }
+    const narrativeJson = args["write"] as string | undefined;
+    let narrative: MatchNarrative;
+    if (narrativeJson) {
+      try {
+        narrative = JSON.parse(narrativeJson) as MatchNarrative;
+      } catch {
+        console.error("Invalid narrative JSON. Pass with --write '<json>'");
+        process.exit(1);
+      }
+    } else {
+      console.error(
+        "Provide match narrative with --write '<json>'\n" +
+          'Example: truematch match --propose --thread <id> --write \'{"headline":"...","strengths":[],"watch_points":[],"confidence_summary":"..."}\'',
+      );
+      process.exit(1);
+    }
+    const state = await proposeMatch(
+      identity.nsec,
+      identity.npub,
+      thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    if (state.status === "matched") {
+      console.log("MATCH CONFIRMED (double-lock cleared).");
+      console.log("Headline:", state.match_narrative?.headline);
+    } else {
+      console.log(
+        `Match proposal sent. Waiting for peer's proposal (thread ${thread_id.slice(0, 8)}...)`,
+      );
+    }
+    return;
+  }
+
+  // --decline --thread <id>
+  if (args["decline"]) {
+    if (!identity) {
+      console.error("Not set up. Run: truematch setup");
+      process.exit(1);
+    }
+    const thread_id = args["thread"] as string | undefined;
+    if (!thread_id) {
+      console.error("Specify thread: truematch match --decline --thread <id>");
+      process.exit(1);
+    }
+    await declineMatch(identity.nsec, identity.npub, thread_id, DEFAULT_RELAYS);
+    console.log(`Negotiation ended (thread ${thread_id.slice(0, 8)}...)`);
+    return;
+  }
+
+  // --start
   if (args["start"]) {
-    const identity = await loadIdentity();
     if (!identity) {
       console.error("Not set up. Run: truematch setup");
       process.exit(1);
@@ -256,20 +422,8 @@ async function cmdMatch(): Promise<void> {
       process.exit(1);
     }
 
-    const existing = await loadNegotiationState();
-    if (existing?.status === "in_progress") {
-      console.log(
-        "Negotiation already in progress. Run: truematch match --status",
-      );
-      return;
-    }
+    await expireStaleThreads(identity.nsec, identity.npub, DEFAULT_RELAYS);
 
-    if (existing?.status === "matched") {
-      console.log("Match already confirmed. Run: truematch match --status");
-      return;
-    }
-
-    // Find a peer to negotiate with
     const agents = await listAgents();
     const candidates = agents.filter((a) => a.pubkey !== identity.npub);
 
@@ -278,7 +432,6 @@ async function cmdMatch(): Promise<void> {
       return;
     }
 
-    // Pick the first candidate (in production, use NIP-90 competitive discovery)
     const peer = candidates[0];
     console.log(`Starting negotiation with ${peer.pubkey.slice(0, 12)}...`);
 
@@ -291,22 +444,24 @@ async function cmdMatch(): Promise<void> {
     );
 
     console.log(`Negotiation started. Thread: ${state.thread_id}`);
-    console.log("Listening for response (Ctrl+C to stop)...\n");
+    console.log(
+      "Opening message sent. Listening for response (Ctrl+C to stop)...\n",
+    );
 
     // Subscribe and process incoming messages
     const unsubscribe = await subscribeToMessages(
       identity.nsec,
       identity.npub,
       async (from, message) => {
-        const updated = await handleIncomingMessage(
-          identity.nsec,
-          identity.npub,
+        const msg = message as TrueMatchMessage;
+        const updated = await receiveMessage(
+          msg.thread_id,
           from,
-          message,
-          obs,
-          DEFAULT_RELAYS,
+          msg.content,
+          msg.type,
         );
-        if (updated?.status === "matched") {
+
+        if (updated.status === "matched") {
           console.log("\nMATCH CONFIRMED.");
           console.log(
             "Headline:",
@@ -315,15 +470,26 @@ async function cmdMatch(): Promise<void> {
           unsubscribe();
           process.exit(0);
         }
-        if (updated?.status === "declined") {
+        if (updated.status === "declined") {
           console.log("\nNegotiation ended (no match at this time).");
           unsubscribe();
           process.exit(0);
         }
+
+        // Print the message for the bridge / interactive session
+        console.log(
+          `\n[TrueMatch] Incoming message from peer ${from.slice(0, 12)}:`,
+        );
+        console.log(`Thread: ${msg.thread_id}`);
+        console.log(`Round: ${updated.round_count} / 10\n`);
+        console.log(msg.content);
+        console.log(
+          "\nRespond with: truematch match --send '<message>' --thread " +
+            msg.thread_id,
+        );
       },
     );
 
-    // Keep alive until match or user interrupts
     process.on("SIGINT", () => {
       unsubscribe();
       process.exit(0);
@@ -332,7 +498,14 @@ async function cmdMatch(): Promise<void> {
     return;
   }
 
-  console.log("Usage: truematch match --start | --status | --reset");
+  console.log(`Usage:
+  truematch match --start                          Start a new negotiation
+  truematch match --status [--thread <id>]         Show negotiation status
+  truematch match --messages --thread <id>         Show conversation history
+  truematch match --send '<msg>' --thread <id>     Send a message
+  truematch match --propose --thread <id> --write '<narrative-json>'
+  truematch match --decline --thread <id>          End the negotiation
+  truematch match --reset --thread <id>            Force-reset thread state`);
 }
 
 // ── deregister ────────────────────────────────────────────────────────────────

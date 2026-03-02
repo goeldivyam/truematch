@@ -8,6 +8,7 @@
     "dist/",
     "skills/",
     "hooks/",
+    "scripts/",
     "openclaw.plugin.json"
   ],
   "scripts": {
