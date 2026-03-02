@@ -1,0 +1,74 @@
+# Azure Container Apps deployment
+#
+# Prerequisites:
+#   az login
+#   az extension add --name containerapp --upgrade
+#   az provider register --namespace Microsoft.App --wait
+#
+# One-time environment setup (run once per subscription):
+#   az group create --name truematch-rg --location eastus
+#   az containerapp env create --name truematch-env --resource-group truematch-rg --location eastus
+#
+# First deploy:
+#   az containerapp create \
+#     --name truematch-registry \
+#     --resource-group truematch-rg \
+#     --environment truematch-env \
+#     --image ghcr.io/YOUR_GITHUB_ORG/truematch:latest \
+#     --ingress external --target-port 3000 \
+#     --min-replicas 1 --max-replicas 1 \
+#     --env-vars \
+#       TURSO_DATABASE_URL=secretref:turso-url \
+#       TURSO_AUTH_TOKEN=secretref:turso-token \
+#       CONTACT_ENCRYPTION_KEY=secretref:encryption-key \
+#     --secrets \
+#       turso-url="libsql://YOUR_DB.turso.io" \
+#       turso-token="YOUR_TURSO_AUTH_TOKEN" \
+#       encryption-key="YOUR_AES_KEY"
+#
+# Update image after a new release tag pushes to GHCR:
+#   az containerapp update \
+#     --name truematch-registry \
+#     --resource-group truematch-rg \
+#     --image ghcr.io/YOUR_GITHUB_ORG/truematch:VERSION
+
+name: truematch-registry
+type: Microsoft.App/containerApps
+
+properties:
+  environmentId: truematch-env
+  configuration:
+    ingress:
+      external: true
+      targetPort: 3000
+      transport: http
+    secrets:
+      - name: turso-url
+        value: "" # set via az containerapp update --set-env-vars or Azure Portal
+      - name: turso-token
+        value: ""
+      - name: encryption-key
+        value: ""
+  template:
+    containers:
+      - name: truematch-registry
+        image: ghcr.io/YOUR_GITHUB_ORG/truematch:latest
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: PORT
+            value: "3000"
+          - name: TURSO_DATABASE_URL
+            secretRef: turso-url
+          - name: TURSO_AUTH_TOKEN
+            secretRef: turso-token
+          - name: CONTACT_ENCRYPTION_KEY
+            secretRef: encryption-key
+          - name: LIVENESS_WINDOW_HOURS
+            value: "24"
+          - name: HEALTH_CHECK_INTERVAL_MINUTES
+            value: "60"
+    scale:
+      minReplicas: 1
+      maxReplicas: 1

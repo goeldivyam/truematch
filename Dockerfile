@@ -27,9 +27,6 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/skill ./skill
 COPY --from=builder /app/drizzle ./drizzle
 
-# Data directory for SQLite — mount a volume here in production
-RUN mkdir -p data
-
 # Non-root user for security
 RUN addgroup --system --gid 1001 truematch \
   && adduser --system --uid 1001 --ingroup truematch truematch \

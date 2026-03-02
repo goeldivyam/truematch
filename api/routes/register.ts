@@ -146,8 +146,11 @@ register.delete("/", rateLimit, attachRawBody, async (c) => {
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  const result = await db.delete(agents).where(eq(agents.pubkey, pubkey));
-  if (result.changes === 0) {
+  const [deleted] = await db
+    .delete(agents)
+    .where(eq(agents.pubkey, pubkey))
+    .returning({ pubkey: agents.pubkey });
+  if (!deleted) {
     return c.json({ error: "Agent not found" }, 404);
   }
 

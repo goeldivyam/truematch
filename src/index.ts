@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { readFile } from "node:fs/promises";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrate } from "drizzle-orm/libsql/migrator";
 import { lt } from "drizzle-orm";
 import { validateEncryptionKey } from "../api/crypto.js";
 import { db } from "../api/db/index.js";
@@ -18,7 +18,7 @@ validateEncryptionKey();
 
 // ── Database migration ────────────────────────────────────────────────────────
 
-migrate(db, { migrationsFolder: "./drizzle" });
+await migrate(db, { migrationsFolder: "./drizzle" });
 
 // ── App ───────────────────────────────────────────────────────────────────────
 

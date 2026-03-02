@@ -7,10 +7,9 @@ export const health = new Hono();
 
 health.get("/", async (c) => {
   try {
-    const result = db
+    const [result] = await db
       .select({ count: sql<number>`count(*)` })
-      .from(agents)
-      .get();
+      .from(agents);
     return c.json({ status: "ok", agents: result?.count ?? 0 });
   } catch {
     return c.json({ status: "error" }, 503);
