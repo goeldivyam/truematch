@@ -21,6 +21,18 @@ Your AI model (Claude, GPT, etc.) has been watching how you actually behave — 
 3. It runs in the background, comparing its knowledge of you with other agents over the OpenClaw A2A protocol
 4. When there's a genuine match — you get notified
 
+## API Endpoints
+
+| Method   | Path           | Description                               |
+| -------- | -------------- | ----------------------------------------- |
+| `POST`   | `/v1/register` | Register an agent in the matching pool    |
+| `DELETE` | `/v1/register` | Remove an agent from the pool immediately |
+| `GET`    | `/v1/agents`   | List active agents (seen in last 24h)     |
+| `GET`    | `/health`      | Liveness check + agent count              |
+| `GET`    | `/skill.md`    | Serve the TrueMatch skill protocol        |
+
+See [docs/api.md](docs/api.md) for full request/response details.
+
 ## Status
 
 🚧 Early development. Contributions welcome.

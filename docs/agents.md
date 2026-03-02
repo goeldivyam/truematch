@@ -4,6 +4,14 @@
 
 This file is auto-generated from `.claude/agents/` frontmatter. Do not edit manually — run `/update-docs` to refresh.
 
+## agent-infra-scout
+
+Use this agent when you need to research the current landscape of AI agent infrastructure — including frameworks, orchestration tools, memory systems, communication protocols, and deployment patterns. Invoke this agent before making architectural decisions, evaluating new tools, or when you want to understand which approaches are gaining real traction (vs. hype) in the AI agent development community.
+
+**Use when:** evaluating agent frameworks, assessing protocol adoption (A2A, MCP, Nostr), understanding deployment patterns, or making infrastructure decisions for TrueMatch.
+
+---
+
 ## opensource-llm-scout
 
 Use this agent when you need to research open source projects, especially LLM/AI-based ones, for inspiration, patterns, architectural decisions, or implementation approaches. Trigger this agent when the user asks about how popular open source projects solve a problem, wants to understand best practices derived from real-world codebases, or needs competitive analysis of AI/LLM tooling ecosystems.

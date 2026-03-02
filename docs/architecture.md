@@ -192,39 +192,76 @@ Platform Fully Withdraws — Humans Connect Directly
 ```
 truematch/
 ├── .claude/
-│   ├── agent-memory/
-│   │   ├── openclaw-integration-advisor/
-│   │   ├── opensource-llm-scout/
-│   │   └── social-matching-psychologist/
-│   ├── agents/
+│   ├── agents/                    # Custom Claude Code agent definitions
+│   │   ├── agent-infra-scout.md
 │   │   ├── openclaw-integration-advisor.md
 │   │   ├── opensource-llm-scout.md
 │   │   └── social-matching-psychologist.md
 │   └── skills/
 │       └── update-docs/
-│           └── SKILL.md
+│           └── SKILL.md           # /update-docs skill
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml                 # type-check, lint, format, test
+│   │   └── docker.yml             # GHCR image publish on v* tags
+│   ├── CODEOWNERS
+│   ├── dependabot.yml
+│   └── PULL_REQUEST_TEMPLATE.md
 ├── api/
-│   ├── middleware/        # request middleware (auth, rate limiting, etc.)
-│   └── routes/            # API route handlers
+│   ├── db/
+│   │   ├── index.ts               # SQLite connection (better-sqlite3 + Drizzle)
+│   │   └── schema.ts              # agents table definition
+│   ├── middleware/
+│   │   ├── rateLimit.ts           # In-memory sliding window, 20 req/min per IP
+│   │   ├── verify.test.ts
+│   │   └── verify.ts              # BIP340 Schnorr signature verification
+│   ├── routes/
+│   │   ├── agents.ts              # GET /v1/agents
+│   │   ├── health.ts              # GET /health
+│   │   └── register.ts            # POST + DELETE /v1/register
+│   ├── crypto.test.ts
+│   ├── crypto.ts                  # AES-256-GCM contact channel encryption
+│   └── types.ts                   # Shared Hono context variable types
 ├── docs/
-│   ├── agents.md          # auto-generated agent inventory
-│   ├── api.md             # auto-generated API reference
-│   ├── architecture.md    # this file
-│   └── skill.md           # manual: the skill protocol spec
-├── skill/                 # the skill.md served at truematch.ai/skill.md
+│   ├── agents.md                  # Auto-generated agent inventory
+│   ├── api.md                     # Auto-generated API reference
+│   ├── architecture.md            # This file
+│   └── skill.md                   # Manual: skill protocol spec
+├── drizzle/
+│   ├── meta/
+│   │   ├── _journal.json
+│   │   └── 0000_snapshot.json
+│   ├── 0000_blushing_captain_universe.sql  # Initial schema
+│   └── 0001_drop_inbox_url.sql            # Drop inbox_url column
+├── skill/
+│   └── skill.md                   # Served at truematch.ai/skill.md
+├── src/
+│   └── index.ts                   # Server entry point (Hono + migrations + pruning loop)
+├── .env.example
 ├── .gitignore
 ├── CONTRIBUTING.md
+├── Dockerfile                     # Multi-stage build, non-root user
 ├── LICENSE
-└── README.md
+├── README.md
+├── docker-compose.yml
+├── drizzle.config.ts
+├── eslint.config.js
+├── fly.toml                       # Fly.io deployment config
+├── package.json
+├── tsconfig.json
+└── vitest.config.ts
 ```
 
 ## Directory Purposes
 
 | Directory         | Purpose                                                                      |
 | ----------------- | ---------------------------------------------------------------------------- |
-| `api/routes/`     | HTTP route handlers — one file per resource (e.g. `register.js`, `match.js`) |
-| `api/middleware/` | Express/Hono/etc. middleware — auth, rate limiting, request validation       |
-| `skill/`          | The `skill.md` file served publicly at `https://truematch.ai/skill.md`       |
+| `src/`            | Server entry point — app wiring, startup validation, background pruning loop |
+| `api/routes/`     | HTTP route handlers — one file per resource                                  |
+| `api/middleware/` | Hono middleware — rate limiting, raw body buffering, signature verification  |
+| `api/db/`         | Drizzle ORM setup — SQLite schema and database connection                    |
+| `drizzle/`        | SQL migration files — applied automatically on server startup                |
+| `skill/`          | The `skill.md` served publicly at `https://truematch.ai/skill.md`            |
 | `docs/`           | Project documentation — auto-maintained by `/update-docs` skill              |
 | `.claude/agents/` | Custom Claude Code agent definitions for this project                        |
 | `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)          |
