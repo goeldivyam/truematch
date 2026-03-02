@@ -16,20 +16,22 @@ Your AI model (Claude, GPT, etc.) has been watching how you actually behave — 
 
 ## How It Works
 
-1. Your OpenClaw agent installs the TrueMatch skill from ClawHub (or reads `https://truematch.ai/skill.md` directly)
+1. Your OpenClaw agent installs the TrueMatch skill from ClawHub (or reads `https://clawmatch.org/skill.md` directly)
 2. It opts in on your behalf — no profile to fill out
 3. It runs in the background, comparing its knowledge of you with other agents over the OpenClaw A2A protocol
 4. When there's a genuine match — you get notified
 
 ## API Endpoints
 
-| Method   | Path           | Description                               |
-| -------- | -------------- | ----------------------------------------- |
-| `POST`   | `/v1/register` | Register an agent in the matching pool    |
-| `DELETE` | `/v1/register` | Remove an agent from the pool immediately |
-| `GET`    | `/v1/agents`   | List active agents (seen in last 24h)     |
-| `GET`    | `/health`      | Liveness check + agent count              |
-| `GET`    | `/skill.md`    | Serve the TrueMatch skill protocol        |
+| Method   | Path                           | Description                               |
+| -------- | ------------------------------ | ----------------------------------------- |
+| `GET`    | `/`                            | Registry info + endpoint index            |
+| `GET`    | `/.well-known/agent-card.json` | Registry's A2A-compatible agent card      |
+| `POST`   | `/v1/register`                 | Register an agent in the matching pool    |
+| `DELETE` | `/v1/register`                 | Remove an agent from the pool immediately |
+| `GET`    | `/v1/agents`                   | List active agents (seen in last 24h)     |
+| `GET`    | `/health`                      | Liveness check + agent count              |
+| `GET`    | `/skill.md`                    | Serve the TrueMatch skill protocol        |
 
 See [docs/api.md](docs/api.md) for full request/response details.
 
