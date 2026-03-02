@@ -60,11 +60,11 @@ That is the complete surface area of this codebase. If a proposed change involve
 - Generating the ObservationSummary on demand from Claude's persistent memory (7 psychological dimensions) — no waiting period required
 - Running the 5-stage negotiation protocol over Nostr NIP-04 encrypted DMs
 - secp256k1 keypair generation, NIP-04 encryption, and BIP340 Schnorr signing for the registry
-- Staged disclosure rules, per-dimension floors, and the composite 0.72 threshold
+- Staged disclosure rules, per-dimension floors, and the composite 0.74 threshold
 - Match narrative generation and simultaneous user notification
 - Post-match 3-round handoff over the same Nostr channel
 
-> **Key design principle:** The agent does not need to "observe over time" — it reads from Claude's existing persistent memory of the user. Confidence scores (0–1 per dimension) reflect how well the model actually knows that dimension, and act as the quality gate. A user with limited history gets low confidence scores and a proportionally harder path to a 0.72 composite — no artificial time threshold needed.
+> **Key design principle:** The agent does not need to "observe over time" — it reads from Claude's existing persistent memory of the user. Confidence scores (0–1 per dimension) reflect how well the model actually knows that dimension, and act as the quality gate. A user with limited history gets low confidence scores and a proportionally harder path to a 0.74 composite — no artificial time threshold needed.
 
 The registry never sees negotiation content. Messages travel directly between agents over Nostr relays. TrueMatch's role is analogous to a DNS resolver: it tells agents how to find each other (via Nostr pubkeys) and then gets out of the way.
 
@@ -158,10 +158,11 @@ Nostr NIP-04 Negotiation (agent-to-agent, TrueMatch never sees this)
      │  Stage 3: attachment + communication + emotional regulation + humor
      │  Stage 4: life velocity + values extended (ranks 3-4)
      │  Stage 5: composite scoring + proposed match_narrative
-     │  per-dimension floor: 0.40 | composite threshold: 0.72 (double-lock)
+     │  per-dimension floors: dealbreakers/emotional_reg 0.60 | attachment/core_values 0.55 | others 0.50
+     │  composite threshold: 0.74 (double-lock) | low-diversity cap: 0.65
      │  state persisted to OpenClaw memory for crash recovery
      ▼
-Confidence Threshold Reached (both agents independently >= 0.72)
+Confidence Threshold Reached (both agents independently >= 0.74)
      │
      │  dual consent required — both agents must accept
      ▼
@@ -238,6 +239,25 @@ truematch/
 │   │   └── 0000_snapshot.json
 │   ├── 0000_blushing_captain_universe.sql  # Initial schema
 │   └── 0001_drop_inbox_url.sql            # Drop inbox_url column
+├── plugin/                        # OpenClaw plugin — published to ClawHub as truematch-plugin
+│   ├── hooks/
+│   │   └── session-update/        # Fires on command:new (end of session)
+│   │       ├── handler.ts         # Runs truematch observe --update and prompts Claude
+│   │       └── HOOK.md            # Hook metadata (name, events, requirements)
+│   ├── skills/
+│   │   └── truematch/
+│   │       └── SKILL.md           # OpenClaw skill manifest for the truematch skill
+│   ├── src/
+│   │   ├── identity.ts            # secp256k1 keypair generation and persistence
+│   │   ├── index.ts               # Plugin entry point — exports all public API
+│   │   ├── negotiation.ts         # 5-stage negotiation state machine (composite threshold 0.74)
+│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe
+│   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
+│   │   ├── registry.ts            # TrueMatch registry registration and deregistration
+│   │   └── types.ts               # All TypeScript types (DimensionObservation + behavioral_context_diversity)
+│   ├── openclaw.plugin.json        # Plugin manifest (skills + hooks declared)
+│   ├── package.json
+│   └── tsconfig.json
 ├── skill/
 │   └── skill.md                   # Served at clawmatch.org/skill.md
 ├── src/
@@ -259,16 +279,20 @@ truematch/
 
 ## Directory Purposes
 
-| Directory         | Purpose                                                                      |
-| ----------------- | ---------------------------------------------------------------------------- |
-| `src/`            | Server entry point — app wiring, startup validation, background pruning loop |
-| `api/routes/`     | HTTP route handlers — one file per resource                                  |
-| `api/middleware/` | Hono middleware — rate limiting, raw body buffering, signature verification  |
-| `api/db/`         | Drizzle ORM setup — Turso/libSQL schema and database connection              |
-| `drizzle/`        | SQL migration files — applied automatically on server startup                |
-| `skill/`          | The `skill.md` served publicly at `https://clawmatch.org/skill.md`           |
-| `docs/`           | Project documentation — auto-maintained by `/update-docs` skill              |
-| `.claude/agents/` | Custom Claude Code agent definitions for this project                        |
-| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)          |
+| Directory         | Purpose                                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `src/`            | Server entry point — app wiring, startup validation, background pruning loop                   |
+| `api/routes/`     | HTTP route handlers — one file per resource                                                    |
+| `api/middleware/` | Hono middleware — rate limiting, raw body buffering, signature verification                    |
+| `api/db/`         | Drizzle ORM setup — Turso/libSQL schema and database connection                                |
+| `drizzle/`        | SQL migration files — applied automatically on server startup                                  |
+| `skill/`          | The `skill.md` served publicly at `https://clawmatch.org/skill.md`                             |
+| `plugin/`         | OpenClaw plugin package — installs into the user's Claude Code agent as `truematch-plugin`     |
+| `plugin/src/`     | Plugin TypeScript source — observation model, negotiation state machine, Nostr transport       |
+| `plugin/hooks/`   | OpenClaw lifecycle hooks — session-update fires on `command:new` to refresh ObservationSummary |
+| `plugin/skills/`  | OpenClaw skill manifests bundled with the plugin                                               |
+| `docs/`           | Project documentation — auto-maintained by `/update-docs` skill                                |
+| `.claude/agents/` | Custom Claude Code agent definitions for this project                                          |
+| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)                            |
 
 <!-- GENERATED:END -->

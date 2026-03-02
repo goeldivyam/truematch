@@ -7,11 +7,22 @@ import type { ObservationSummary } from "./types.js";
 const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 const AGENT_VERSION = "0.1.0";
 
-// Minimum thresholds to enter the matching pool (per skill spec)
-const MIN_CONVERSATIONS = 5;
-const MIN_DAYS_SPAN = 3;
-const MIN_TOTAL_SIGNALS = 15;
-const MIN_DIMENSION_CONFIDENCE = 0.4;
+// Global minimums — cross-session sanity check (agent must have seen user across 2 separate contexts)
+const GLOBAL_MIN_CONVERSATIONS = 2;
+const GLOBAL_MIN_DAYS = 2;
+
+// Per-dimension confidence floors (psychologist-derived; encode the typical conversation count needed)
+// attachment/emotional_regulation: high contextual sensitivity → higher floor
+// dealbreakers: can surface in a single conversation → higher floor but no day requirement
+const DIMENSION_FLOORS = {
+  attachment: 0.55,
+  core_values: 0.55,
+  communication: 0.5,
+  emotional_regulation: 0.6,
+  humor: 0.5,
+  life_velocity: 0.5,
+  dealbreakers: 0.6,
+} as const;
 
 export async function loadObservation(): Promise<ObservationSummary | null> {
   if (!existsSync(OBSERVATION_FILE)) return null;
@@ -29,19 +40,18 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
 }
 
 export function isEligible(obs: ObservationSummary): boolean {
-  if (obs.conversation_count < MIN_CONVERSATIONS) return false;
-  if (obs.observation_span_days < MIN_DAYS_SPAN) return false;
-  if (obs.total_signals < MIN_TOTAL_SIGNALS) return false;
-  const dimensions = [
-    obs.attachment,
-    obs.core_values,
-    obs.communication,
-    obs.emotional_regulation,
-    obs.humor,
-    obs.life_velocity,
-    obs.dealbreakers,
-  ];
-  return dimensions.every((d) => d.confidence >= MIN_DIMENSION_CONFIDENCE);
+  if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
+  if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
+  return (
+    obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
+    obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
+    obs.communication.confidence >= DIMENSION_FLOORS.communication &&
+    obs.emotional_regulation.confidence >=
+      DIMENSION_FLOORS.emotional_regulation &&
+    obs.humor.confidence >= DIMENSION_FLOORS.humor &&
+    obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
+    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers
+  );
 }
 
 export function emptyObservation(): ObservationSummary {
@@ -52,6 +62,7 @@ export function emptyObservation(): ObservationSummary {
     observation_count: 0,
     last_updated: now,
     evidence_summary: "",
+    behavioral_context_diversity: "low" as const,
   });
 
   return {
@@ -60,7 +71,6 @@ export function emptyObservation(): ObservationSummary {
     updated_at: now,
     conversation_count: 0,
     observation_span_days: 0,
-    total_signals: 0,
     matching_eligible: false,
 
     attachment: emptyDim({ primary: "secure" as const, secondary: null }),
@@ -105,6 +115,7 @@ export function stripEvidenceSummaries(
     observation_count: number;
     last_updated: string;
     evidence_summary: string;
+    behavioral_context_diversity: "low" | "medium" | "high";
   }) => ({
     ...dim,
     evidence_summary: "", // always cleared before transmission
@@ -129,35 +140,46 @@ export function eligibilityReport(obs: ObservationSummary): string {
 
   pass(
     "Conversations",
-    obs.conversation_count >= MIN_CONVERSATIONS,
-    `${obs.conversation_count} / ${MIN_CONVERSATIONS} required`,
+    obs.conversation_count >= GLOBAL_MIN_CONVERSATIONS,
+    `${obs.conversation_count} / ${GLOBAL_MIN_CONVERSATIONS} required`,
   );
   pass(
     "Observation span",
-    obs.observation_span_days >= MIN_DAYS_SPAN,
-    `${obs.observation_span_days} days / ${MIN_DAYS_SPAN} required`,
-  );
-  pass(
-    "Total signals",
-    obs.total_signals >= MIN_TOTAL_SIGNALS,
-    `${obs.total_signals} / ${MIN_TOTAL_SIGNALS} required`,
+    obs.observation_span_days >= GLOBAL_MIN_DAYS,
+    `${obs.observation_span_days} days / ${GLOBAL_MIN_DAYS} required`,
   );
 
-  const dims = [
-    ["Attachment", obs.attachment.confidence],
-    ["Core values", obs.core_values.confidence],
-    ["Communication", obs.communication.confidence],
-    ["Emotional regulation", obs.emotional_regulation.confidence],
-    ["Humor", obs.humor.confidence],
-    ["Life velocity", obs.life_velocity.confidence],
-    ["Dealbreakers", obs.dealbreakers.confidence],
-  ] as [string, number][];
+  const dims: [string, number, number][] = [
+    ["Attachment", obs.attachment.confidence, DIMENSION_FLOORS.attachment],
+    ["Core values", obs.core_values.confidence, DIMENSION_FLOORS.core_values],
+    [
+      "Communication",
+      obs.communication.confidence,
+      DIMENSION_FLOORS.communication,
+    ],
+    [
+      "Emotional regulation",
+      obs.emotional_regulation.confidence,
+      DIMENSION_FLOORS.emotional_regulation,
+    ],
+    ["Humor", obs.humor.confidence, DIMENSION_FLOORS.humor],
+    [
+      "Life velocity",
+      obs.life_velocity.confidence,
+      DIMENSION_FLOORS.life_velocity,
+    ],
+    [
+      "Dealbreakers",
+      obs.dealbreakers.confidence,
+      DIMENSION_FLOORS.dealbreakers,
+    ],
+  ];
 
-  for (const [name, conf] of dims) {
+  for (const [name, conf, floor] of dims) {
     pass(
       name,
-      conf >= MIN_DIMENSION_CONFIDENCE,
-      `confidence ${conf.toFixed(2)} / ${MIN_DIMENSION_CONFIDENCE} required`,
+      conf >= floor,
+      `confidence ${conf.toFixed(2)} / ${floor.toFixed(2)} required`,
     );
   }
 

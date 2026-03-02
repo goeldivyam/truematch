@@ -18,8 +18,23 @@ const NEGOTIATION_FILE = join(TRUEMATCH_DIR, "negotiation-state.json");
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
 // Composite threshold both agents must independently clear (double-lock)
-const COMPOSITE_THRESHOLD = 0.72;
-const DIMENSION_FLOOR = 0.4;
+// Raised from 0.72 → 0.74 to compensate for removal of uniform time gates
+const COMPOSITE_THRESHOLD = 0.74;
+
+// Per-dimension floors (must match observation.ts DIMENSION_FLOORS)
+const DIMENSION_FLOORS = {
+  attachment: 0.55,
+  core_values: 0.55,
+  communication: 0.5,
+  emotional_regulation: 0.6,
+  humor: 0.5,
+  life_velocity: 0.5,
+  dealbreakers: 0.6,
+} as const;
+
+// Confidence cap for dimensions with low behavioral_context_diversity
+// (single-context signal should not dominate the composite)
+const LOW_DIVERSITY_CAP = 0.65;
 
 export async function loadNegotiationState(): Promise<NegotiationState | null> {
   if (!existsSync(NEGOTIATION_FILE)) return null;
@@ -197,7 +212,7 @@ export async function handleIncomingMessage(
     case 2: {
       // Values alignment score gate >= 0.40
       const alignmentScore = payload["values_alignment_score"] as number;
-      if (alignmentScore < DIMENSION_FLOOR) {
+      if (alignmentScore < DIMENSION_FLOORS.core_values) {
         await sendEnd(
           senderNsec,
           senderNpub,
@@ -507,12 +522,31 @@ async function sendCompositeScore(
 // ── Scoring helpers ───────────────────────────────────────────────────────────
 
 function allAboveFloor(scores: Record<string, number>): boolean {
-  return Object.values(scores).every((s) => s >= DIMENSION_FLOOR);
+  return (
+    (scores["attachment"] ?? 0) >= DIMENSION_FLOORS.attachment &&
+    (scores["core_values"] ?? 0) >= DIMENSION_FLOORS.core_values &&
+    (scores["communication"] ?? 0) >= DIMENSION_FLOORS.communication &&
+    (scores["emotional_regulation"] ?? 0) >=
+      DIMENSION_FLOORS.emotional_regulation &&
+    (scores["humor"] ?? 0) >= DIMENSION_FLOORS.humor &&
+    (scores["life_velocity"] ?? 0) >= DIMENSION_FLOORS.life_velocity &&
+    (scores["dealbreakers"] ?? 0) >= DIMENSION_FLOORS.dealbreakers
+  );
+}
+
+// Cap confidence for dimensions observed in only one behavioral context
+function effectiveConfidence(d: {
+  confidence: number;
+  behavioral_context_diversity: "low" | "medium" | "high";
+}): number {
+  return d.behavioral_context_diversity === "low"
+    ? Math.min(d.confidence, LOW_DIVERSITY_CAP)
+    : d.confidence;
 }
 
 function computeCompositeScore(obs: ObservationSummary): number {
-  // composite_score = Σ(score_i × confidence_i) / Σ(confidence_i)
-  // score_i is the agent's own per-dimension confidence as a proxy for signal quality
+  // composite_score = Σ(eff_i²) / Σ(eff_i)  where eff_i = effectiveConfidence(dim_i)
+  // Low-diversity dimensions are capped at LOW_DIVERSITY_CAP before contributing
   const dims = [
     obs.attachment,
     obs.core_values,
@@ -522,24 +556,23 @@ function computeCompositeScore(obs: ObservationSummary): number {
     obs.life_velocity,
     obs.dealbreakers,
   ];
-  const weightedSum = dims.reduce(
-    (sum, d) => sum + d.confidence * d.confidence,
-    0,
-  );
-  const totalWeight = dims.reduce((sum, d) => sum + d.confidence, 0);
+  const effs = dims.map(effectiveConfidence);
+  const weightedSum = effs.reduce((sum, e) => sum + e * e, 0);
+  const totalWeight = effs.reduce((sum, e) => sum + e, 0);
   return totalWeight > 0 ? weightedSum / totalWeight : 0;
 }
 
 function checkDimensionFloors(obs: ObservationSummary): boolean {
-  return [
-    obs.attachment.confidence,
-    obs.core_values.confidence,
-    obs.communication.confidence,
-    obs.emotional_regulation.confidence,
-    obs.humor.confidence,
-    obs.life_velocity.confidence,
-    obs.dealbreakers.confidence,
-  ].every((c) => c >= DIMENSION_FLOOR);
+  return (
+    obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
+    obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
+    obs.communication.confidence >= DIMENSION_FLOORS.communication &&
+    obs.emotional_regulation.confidence >=
+      DIMENSION_FLOORS.emotional_regulation &&
+    obs.humor.confidence >= DIMENSION_FLOORS.humor &&
+    obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
+    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers
+  );
 }
 
 function buildMatchNarrative(obs: ObservationSummary): MatchNarrative {

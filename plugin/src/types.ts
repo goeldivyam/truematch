@@ -6,6 +6,8 @@ export interface DimensionObservation<T> {
   observation_count: number;
   last_updated: string; // ISO 8601
   evidence_summary: string; // ONE sentence — NEVER transmitted to peer agents
+  // low = single context only (e.g. only work chat); caps composite contribution at 0.65
+  behavioral_context_diversity: "low" | "medium" | "high";
 }
 
 // Attachment style (Bartholomew & Horowitz 1991)
@@ -106,7 +108,6 @@ export interface ObservationSummary {
   updated_at: string; // ISO 8601
   conversation_count: number;
   observation_span_days: number;
-  total_signals: number;
   matching_eligible: boolean;
 
   attachment: DimensionObservation<AttachmentObservation>;

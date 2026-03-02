@@ -128,6 +128,9 @@ interface DimensionObservation<T> {
   observation_count: number;
   last_updated: string; // ISO 8601
   evidence_summary: string; // ONE sentence — NEVER transmitted to peer agents
+  // "low" = observed in only one behavioral context (e.g. only work conversations)
+  // caps this dimension's contribution to composite_score at 0.65
+  behavioral_context_diversity: "low" | "medium" | "high";
 }
 ```
 
@@ -157,10 +160,9 @@ Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 
 
 **Minimum viable observation (pool entry gate):**
 
-- ≥ 5 conversations
-- ≥ 3 days observation span
-- ≥ 15 total signals across all 7 dimensions
-- All 7 dimensions at confidence ≥ 0.40
+- ≥ 2 conversations (cross-session sanity check)
+- ≥ 2 days observation span (ensures at least two distinct behavioral contexts)
+- Per-dimension confidence floors: `dealbreakers` ≥ 0.60, `emotional_regulation` ≥ 0.60, `attachment` ≥ 0.55, `core_values` ≥ 0.55, `communication` ≥ 0.50, `humor` ≥ 0.50, `life_velocity` ≥ 0.50
 - ≥ 1 hard dealbreaker constraint at confidence ≥ 0.50 (or positively observed openness)
 
 An agent that does not meet these criteria cannot enter the matching pool.
@@ -173,7 +175,7 @@ Each stage releases only what is needed to proceed or terminate. Termination is 
 
 Transmitted: confidence scores for all 7 dimensions. No values.
 
-Gate: both agents `matching_eligible === true` AND all dimensions ≥ 0.40. If either fails, send `end` message.
+Gate: both agents `matching_eligible === true` AND all dimensions meet their per-dimension floor (dealbreakers/emotional_reg ≥ 0.60, attachment/core_values ≥ 0.55, others ≥ 0.50). If either fails, send `end` message.
 
 **Stage 1 — Dealbreaker Collision (same round as Stage 0)**
 
@@ -187,7 +189,7 @@ Neither agent ever knows the other's full dealbreaker list. Constraint lists mus
 
 Transmitted: top 2 values (ranks 1–2), each with rank and confidence. Values ranks 3+ withheld.
 
-Gate: values alignment score ≥ 0.40.
+Gate: values alignment score ≥ 0.55 (matches the `core_values` dimension floor).
 
 **Stage 3 — Personality and Style (Round 2)**
 
@@ -220,7 +222,7 @@ where `score_i` is the compatibility score from the pairing matrix for dimension
 
 Transmitted: `composite_score`, `confidence_by_dimension`, `dimension_floor_cleared`, `proposed_match_narrative`.
 
-**Double-lock gate:** Both agents must independently report `composite_score ≥ 0.72` AND `dimension_floor_cleared === true` (all 7 dimensions still ≥ 0.40 at time of scoring — re-checked, not cached from pool entry).
+**Double-lock gate:** Both agents must independently report `composite_score ≥ 0.74` AND `dimension_floor_cleared === true` (all 7 dimensions still meet their per-dimension floor at time of scoring — re-checked, not cached from pool entry). Dimensions with `behavioral_context_diversity: "low"` contribute at most 0.65 to the composite, regardless of their raw confidence score.
 
 If the double-lock clears, both agents transition to the match proposal flow. If either fails, send `end`.
 
@@ -242,8 +244,9 @@ Both agents produce a `proposed_match_narrative`. These are merged:
 - `evidence_summary` strings are **never transmitted** to peer agents
 - User identity is not revealed until **both agents confirm a match** (dual consent)
 - Dealbreaker constraint lists are **not persisted** beyond the negotiation session — neither agent knows the other's full list
-- Confidence floor of **0.40 per dimension** — thin user models cannot produce matches
-- Composite threshold of **0.72** — both agents must independently clear it (double-lock)
+- Per-dimension confidence floors — thin user models cannot produce matches (lowest floor: 0.50; highest: 0.60 for dealbreakers and emotional regulation)
+- Composite threshold of **0.74** — both agents must independently clear it (double-lock)
+- `behavioral_context_diversity: "low"` caps a dimension's composite contribution at 0.65 — single-context signals cannot dominate the match score
 - Opt-out removes the agent from the matching pool **immediately and permanently**
 
 ---
