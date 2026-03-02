@@ -37,16 +37,19 @@ Scope requested: $ARGUMENTS (if empty, run all sections)
 Read the following and build an internal picture of what exists:
 
 **Code:**
+
 - `api/routes/` — every route file: HTTP methods, paths, handler names, JSDoc summaries
 - `api/middleware/` — every middleware: what it does, headers/errors it handles
 - `skill/` — skill.md and any supporting files: what protocol it defines
 - Root: `README.md`, `CONTRIBUTING.md`, `package.json` (or equivalent manifest)
 
 **Docs:**
+
 - `docs/` — every file (note which have `<!-- GENERATED -->` markers and which don't)
 - `.claude/agents/` — agent definition files (name and description frontmatter)
 
 For each source file extract:
+
 - Exported functions / route handlers / middleware names
 - JSDoc / docstring summaries if present
 - File-level purpose comment if present
@@ -58,6 +61,7 @@ For each source file extract:
 ### `docs/architecture.md`
 
 **Auto-maintained sections:**
+
 - Directory tree of all non-trivial project files (regenerate from filesystem every run)
 - One-line description of each top-level directory's purpose
 - Data flow diagram in ASCII or Mermaid: `agent → API → matching logic → notification`
@@ -71,6 +75,7 @@ For each source file extract:
 ### `docs/api.md`
 
 **Auto-maintained sections:**
+
 - One entry per route in `api/routes/`: method, path, description, request body, response shape
 - One entry per middleware in `api/middleware/`: purpose, what it injects or modifies
 - Wrap the entire generated block in `<!-- GENERATED:START -->` / `<!-- GENERATED:END -->`
@@ -89,6 +94,7 @@ For each source file extract:
 - If it exists: read it, check for internal consistency (e.g. mentions routes that no longer exist), but do not edit — report issues only
 
 Stub structure if creating:
+
 ```markdown
 # TrueMatch Skill Protocol
 
@@ -114,6 +120,7 @@ Stub structure if creating:
 **Fully auto-generated** from `.claude/agents/` frontmatter on every run.
 
 For each `.md` file in `.claude/agents/`:
+
 - Extract the `name` (or derive from filename) and `description` fields
 - Write one entry: agent name as heading, description as paragraph, intended use cases if present
 
@@ -134,6 +141,7 @@ Wrap the entire file content in `<!-- GENERATED:START -->` / `<!-- GENERATED:END
 ### `CONTRIBUTING.md`
 
 **Do not auto-edit.** Only flag issues for human review:
+
 - If a directory path mentioned in `CONTRIBUTING.md` no longer exists in the filesystem, report it as STALE
 - Do not rewrite any content
 
@@ -142,11 +150,13 @@ Wrap the entire file content in `<!-- GENERATED:START -->` / `<!-- GENERATED:END
 ## Step 3 — Apply Updates Using Marker-Based Replacement
 
 **For files with `<!-- GENERATED:START -->` / `<!-- GENERATED:END -->` markers:**
+
 1. Find the markers
 2. Replace only the content between them
 3. Leave everything outside untouched
 
 **For files without markers:**
+
 - If empty or a new stub: write full content with markers around generated sections
 - If existing content with no markers: append generated section at the bottom with a notice:
   ```
@@ -154,6 +164,7 @@ Wrap the entire file content in `<!-- GENERATED:START -->` / `<!-- GENERATED:END
   ```
 
 **For fully MANUAL files (`docs/skill.md`):**
+
 - Only create if missing; never overwrite
 
 ---
@@ -193,13 +204,13 @@ Print this at the end of every run (do not save to a file, just output):
 
 ## Marker Reference
 
-| Marker | Meaning |
-|---|---|
-| `<!-- GENERATED:START -->` | Begin auto-managed block — replaced on every run |
-| `<!-- GENERATED:END -->` | End auto-managed block |
-| `<!-- MANUAL:START -->` | Begin human-authored block — never overwrite |
-| `<!-- MANUAL:END -->` | End human-authored block |
-| `<!-- TODO: ... -->` | Placeholder when information cannot be auto-derived |
+| Marker                     | Meaning                                             |
+| -------------------------- | --------------------------------------------------- |
+| `<!-- GENERATED:START -->` | Begin auto-managed block — replaced on every run    |
+| `<!-- GENERATED:END -->`   | End auto-managed block                              |
+| `<!-- MANUAL:START -->`    | Begin human-authored block — never overwrite        |
+| `<!-- MANUAL:END -->`      | End human-authored block                            |
+| `<!-- TODO: ... -->`       | Placeholder when information cannot be auto-derived |
 
 ---
 
@@ -228,17 +239,20 @@ If a second run would produce a diff, the markers are being respected inconsiste
 This skill has no built-in scheduler. Recommended approaches:
 
 **Manually after each release:**
+
 ```bash
 claude -p "/update-docs"
 ```
 
 **GitHub Actions (scheduled weekly or post-merge):**
+
 ```yaml
 - name: Update docs
   run: claude -p "/update-docs"
 ```
 
 **Post-merge git hook (`.git/hooks/post-merge`):**
+
 ```bash
 #!/bin/sh
 claude -p "/update-docs"

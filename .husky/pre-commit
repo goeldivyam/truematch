@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Runs lint-staged on every commit.
+# lint-staged is configured in package.json to run Prettier over staged files.
+# ESLint and tsc are intentionally excluded from the pre-commit hook —
+# they run in CI where feedback is async and doesn't block local iteration.
+pnpm lint-staged

@@ -1,0 +1,13 @@
+# Global owner — all files require review from @goeldivyam.
+# As the team grows, add directory-level overrides below this line
+# to delegate ownership of specific subsystems.
+#
+# Format: <path-pattern>  <owner> [<additional-owners>...]
+# Patterns are matched in order; last match wins.
+#
+# Examples to add later:
+#   /api/           @goeldivyam @future-api-maintainer
+#   /docs/          @goeldivyam @future-docs-maintainer
+#   /.github/       @goeldivyam
+
+*   @goeldivyam

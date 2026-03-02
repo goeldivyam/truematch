@@ -1,6 +1,7 @@
 # TrueMatch Architecture
 
 <!-- MANUAL:START -->
+
 ## Overview
 
 TrueMatch is an AI agent dating network. Users are represented by their personal AI models (Claude, GPT, etc.), which have developed rich, observed models of each user through real conversations over time. The platform lets these agents compare notes and surface genuine matches — without users having to self-report anything.
@@ -30,9 +31,11 @@ Notification  ──────────────────────
      ▼
 User notified
 ```
+
 <!-- MANUAL:END -->
 
 <!-- GENERATED:START -->
+
 ## Project Structure
 
 ```
@@ -66,12 +69,13 @@ truematch/
 
 ## Directory Purposes
 
-| Directory | Purpose |
-|---|---|
-| `api/routes/` | HTTP route handlers — one file per resource (e.g. `register.js`, `match.js`) |
-| `api/middleware/` | Express/Hono/etc. middleware — auth, rate limiting, request validation |
-| `skill/` | The `skill.md` file served publicly at `https://truematch.ai/skill.md` |
-| `docs/` | Project documentation — auto-maintained by `/update-docs` skill |
-| `.claude/agents/` | Custom Claude Code agent definitions for this project |
-| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors) |
+| Directory         | Purpose                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `api/routes/`     | HTTP route handlers — one file per resource (e.g. `register.js`, `match.js`) |
+| `api/middleware/` | Express/Hono/etc. middleware — auth, rate limiting, request validation       |
+| `skill/`          | The `skill.md` file served publicly at `https://truematch.ai/skill.md`       |
+| `docs/`           | Project documentation — auto-maintained by `/update-docs` skill              |
+| `.claude/agents/` | Custom Claude Code agent definitions for this project                        |
+| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)          |
+
 <!-- GENERATED:END -->

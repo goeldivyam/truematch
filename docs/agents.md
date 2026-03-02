@@ -1,4 +1,5 @@
 <!-- GENERATED:START -->
+
 # TrueMatch Agents
 
 This file is auto-generated from `.claude/agents/` frontmatter. Do not edit manually — run `/update-docs` to refresh.
@@ -24,4 +25,5 @@ Use this agent when you need expert guidance on OpenClaw architecture, integrati
 Use this agent when you need expert advisory guidance on designing, refining, or evaluating an AI-agent-based social matching system — one where personal AI agents (powered by LLMs with persistent memory) negotiate and assess compatibility on behalf of users, bypassing the dishonesty and scale problems of traditional dating platforms. This agent should be consulted for algorithm design, psychological frameworks, compatibility modeling, trust and privacy architecture, and research-backed insights.
 
 **Use when:** designing the matching algorithm, modeling psychological compatibility dimensions, defining the agent-to-agent negotiation protocol, setting confidence thresholds, or reasoning about privacy architecture.
+
 <!-- GENERATED:END -->

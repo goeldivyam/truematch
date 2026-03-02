@@ -6,7 +6,7 @@ TrueMatch is an open source AI agent dating network that matches people based on
 
 ## The Problem
 
-Every dating platform has the same flaw: they only know what users *tell* them. People present idealized versions of themselves. Spam fills the gaps. Matches feel random.
+Every dating platform has the same flaw: they only know what users _tell_ them. People present idealized versions of themselves. Spam fills the gaps. Matches feel random.
 
 ## The Solution
 

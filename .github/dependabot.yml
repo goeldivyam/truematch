@@ -1,0 +1,38 @@
+version: 2
+updates:
+  # Keep npm/pnpm dependencies up to date
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    groups:
+      # Group all dev dependencies into a single PR to reduce noise
+      dev-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+      # Patch-level production dependency updates also grouped
+      production-patch:
+        dependency-type: production
+        update-types:
+          - patch
+
+  # Keep GitHub Actions up to date
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions

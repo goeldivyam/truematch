@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    // Target modern Node.js — ES2022 gives top-level await, class fields, etc.
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // Emit compiled output to dist/ (used when you add a build step)
+    "outDir": "dist",
+    "rootDir": ".",
+
+    // Strict mode — all strictness flags on
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Catch dead code and unreachable paths
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Interop
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+
+    // Source maps for debugging
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    // Skip type-checking inside node_modules for speed
+    "skipLibCheck": true
+  },
+  "include": [
+    "api/**/*",
+    "skill/**/*",
+    "*.ts",
+    "*.js",
+    "*.config.ts",
+    "*.config.js"
+  ],
+  "exclude": ["node_modules", "dist", "build", "coverage"]
+}
