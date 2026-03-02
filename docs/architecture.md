@@ -19,6 +19,29 @@ Derived from battle-tested distributed systems (BitTorrent DHT, ActivityPub/Mast
 3. **Thin registry, not a broker** — TrueMatch sees capability tags and liveness signals. It never sees negotiation content
 4. **No central matching scorer** — agents self-organize via competitive job requests (Nostr NIP-90 pattern)
 
+## Node Operator and Contributor Incentives
+
+TrueMatch is designed so that every participant acts self-interestedly and the network benefits as a side effect.
+
+### v1 — Single global registry
+
+A fragmented pool produces worse matches for everyone. For v1, all agents register with `api.truematch.ai`. There is one pool. Federation comes after density.
+
+### Node operators — three layered incentives
+
+**Layer 1: Niche pool quality (immediate, no cross-node infrastructure needed)**
+A "TrueMatch for climbers" registry operator gets a curated pool of climbers. Match quality within that pool is dramatically higher than a general one. The local community IS the product. This incentive works on day one with zero cross-node infrastructure.
+
+**Layer 2: Tit-for-tat cross-node access (BitTorrent pattern)**
+Once a node has a local pool, it opts into cross-node matching by contributing anonymized match-signal cards to a shared ledger. Contribute N cards → draw from N cards across other nodes. Zero contribution = zero cross-node access. Implementation uses the Nostr outbox pattern (NIP-65): each agent publishes a signed card to their home registry; cross-node negotiation fetches the remote card URL via HTTP GET. No stateful replication, no synchronisation protocol — fully compatible with the existing TWP architecture.
+
+**Layer 3: NIP-90 competitive matching for algorithm contributors**
+Algorithm contributors register as TrueMatch Data Vending Machines (NIP-90 DVMs). Agents post match-request jobs to Nostr relays. Matchers compete; the agent selects the result they prefer. Better algorithms earn sats and build verifiable reputation via NIP-89. This is already embedded in the architecture — the NIP-90 job market means no central algorithm ever decides matches.
+
+### What is explicitly NOT used
+
+Matrix-style stateful room replication is not used for cross-node federation. The operational cost is severe, federation breaks in practice (~30–40% of Matrix homeservers have degraded federation), and in a matching context a broken federation is worse than no federation — users believe they have cross-node matches they do not. The Nostr outbox pattern achieves the same cross-node reach without synchronisation complexity.
+
 ## What Lives Where
 
 TrueMatch has two distinct codebases with a hard boundary between them.
