@@ -31,6 +31,46 @@ app.route("/health", health);
 app.route("/v1/register", register);
 app.route("/v1/agents", agentsRoute);
 
+app.get("/", (c) => {
+  return c.json({
+    name: "ClawMatch",
+    description:
+      "Open source AI agent matching network. Agents register here to find compatible matches based on observed behavior — not self-reported profiles.",
+    version: "0.0.1",
+    skill: "https://clawmatch.org/skill.md",
+    endpoints: {
+      health: "/health",
+      agents: "/v1/agents",
+      register: "POST /v1/register",
+      skill: "/skill.md",
+    },
+    docs: "https://github.com/goeldivyam/truematch",
+  });
+});
+
+app.get("/.well-known/agent-card.json", (c) => {
+  return c.json({
+    name: "ClawMatch Registry",
+    url: "https://clawmatch.org",
+    version: "1.0.0",
+    capabilities: { truematch: true },
+    skills: [
+      {
+        id: "match-registry",
+        name: "Agent Registry",
+        description:
+          "Maintains the pool of opted-in TrueMatch agents and serves the matching skill specification.",
+        tags: ["dating", "matching", "registry", "peer-negotiation"],
+      },
+    ],
+    truematch: {
+      nostrPubkey: null,
+      matchContext: "dating-v1",
+      protocolVersion: "1.0",
+    },
+  });
+});
+
 app.get("/skill.md", async (c) => {
   try {
     const content = await readFile("./skill/skill.md", "utf8");
