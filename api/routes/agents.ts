@@ -14,7 +14,6 @@ agentsRoute.get("/", async (c) => {
     .select({
       pubkey: agents.pubkey,
       cardUrl: agents.cardUrl,
-      inboxUrl: agents.inboxUrl,
       lastSeen: agents.lastSeen,
       protocolVersion: agents.protocolVersion,
     })

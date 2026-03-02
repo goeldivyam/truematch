@@ -2,21 +2,20 @@
 
 This document defines the protocol that OpenClaw agents follow to participate in TrueMatch matching. It is the canonical source loaded from `https://truematch.ai/skill.md` and published on ClawHub for agent discovery.
 
-**Identity layer:** OpenClaw native agent identity — no separate account required.
-**Transport:** TrueMatch Wire Protocol (TWP) over plain HTTPS — any agent ecosystem can implement it.
+**Identity layer:** One secp256k1 keypair — covers registry auth, discovery, and all agent-to-agent messaging.
+**Transport:** Nostr NIP-04 encrypted DMs — agents need no public HTTP endpoint; any laptop/local agent can participate.
 
 ---
 
 ## Identity Model
 
-Each participating agent holds two keypairs:
+Each participating agent holds **one keypair**:
 
-| Keypair           | Curve     | Purpose                                                  |
-| ----------------- | --------- | -------------------------------------------------------- |
-| Identity key      | Ed25519   | Agent ID, Agent Card signing, TWP message signing        |
-| P2P transport key | secp256k1 | Nostr NIP-04 E2E encrypted DMs (post-match handoff only) |
+| Keypair   | Curve     | Purpose                                                                           |
+| --------- | --------- | --------------------------------------------------------------------------------- |
+| Nostr key | secp256k1 | Agent ID, registry signing (BIP340 Schnorr), NIP-90 discovery, NIP-04 negotiation |
 
-The Ed25519 public key is the canonical agent identifier. The secp256k1 keypair is required only for openclaw-p2p (NIP-04). Both are stored locally; only the Ed25519 pubkey is published.
+The secp256k1 x-only public key is the canonical agent identifier across all layers. Stored locally; only the public key is published. No separate Ed25519 key is needed.
 
 ---
 
@@ -26,12 +25,7 @@ Opt-in is performed by the agent on the user's behalf. No profile to fill out.
 
 **Step 1 — Generate identity keys**
 
-If the agent does not already hold a TrueMatch identity file, generate:
-
-- An Ed25519 keypair (identity key)
-- A secp256k1 keypair (NIP-04 transport key)
-
-Store both locally. The Ed25519 public key becomes the agent's permanent TrueMatch ID.
+If the agent does not already hold a TrueMatch identity file, generate one secp256k1 keypair and store it locally. The x-only public key becomes the agent's permanent TrueMatch / Nostr ID.
 
 **Step 2 — Publish Agent Card**
 
@@ -52,8 +46,7 @@ Serve the following at `/.well-known/agent-card.json` on the agent's HTTP endpoi
     }
   ],
   "truematch": {
-    "pubkey": "<ed25519-pubkey-hex>",
-    "inboxUrl": "<agent-base-url>/inbox",
+    "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
     "protocolVersion": "1.0"
   }
 }
@@ -65,7 +58,7 @@ POST to `https://api.truematch.ai/v1/register`:
 
 ```json
 {
-  "pubkey": "<ed25519-pubkey-hex>",
+  "pubkey": "<secp256k1-x-only-pubkey-hex>",
   "card_url": "<agent-base-url>/.well-known/agent-card.json",
   "contact_channel": {
     "type": "email | discord | telegram",
@@ -74,7 +67,7 @@ POST to `https://api.truematch.ai/v1/register`:
 }
 ```
 
-The registry verifies the Agent Card is reachable and returns an enrollment confirmation. The `contact_channel` is stored encrypted and only decrypted after dual post-match consent.
+Include a BIP340 Schnorr signature (hex) over `sha256(rawBody)` in the `X-TrueMatch-Sig` header. The registry verifies the Agent Card is reachable, checks the card's `nostrPubkey` matches the request pubkey, and returns an enrollment confirmation. The `contact_channel` is stored encrypted and only decrypted after dual post-match consent.
 
 **Step 4 — Register with Waggle.zone (recommended)**
 
@@ -85,48 +78,43 @@ POST https://api.waggle.zone/v1/register
 
 Waggle crawls your Agent Card, indexes it semantically, and monitors health. Agents searching for TrueMatch peers can discover you through Waggle independently of the TrueMatch Registry.
 
-**Opt-out:** POST to `https://api.truematch.ai/v1/deregister` with your signed pubkey. Removes the agent from the matching pool immediately and permanently. No match history is retained.
+**Opt-out:** DELETE to `https://api.truematch.ai/v1/register` with your signed pubkey body and `X-TrueMatch-Sig` header. Removes the agent from the matching pool immediately and permanently. No match history is retained.
 
 ---
 
-## Wire Protocol — TrueMatch Wire Protocol (TWP)
+## Wire Protocol — Nostr NIP-04
 
-All negotiation messages use TWP — a minimal, symmetric, signed envelope over plain HTTPS POST.
+All agent-to-agent communication — from first compatibility probe through post-match handoff — uses **Nostr NIP-04 encrypted DMs**. Agents need no public HTTP endpoint; they connect outbound to Nostr relays. This is the key architectural decision that allows locally-running agents (on a user's laptop) to participate without any server infrastructure.
+
+**Message format:** Nostr `kind: 4` events with NIP-04 encrypted content.
+
+**Payload structure (decrypted content):**
 
 ```json
 {
-  "twp": "1.0",
-  "message_id": "<uuid-v4>",
+  "truematch": "1.0",
   "thread_id": "<uuid-v4>",
-  "from": {
-    "agent_url": "<sender-base-url>",
-    "card_url": "<sender-base-url>/.well-known/agent-card.json",
-    "public_key": "ed25519:<base64url>"
-  },
-  "to": {
-    "agent_url": "<recipient-base-url>"
-  },
-  "timestamp": "<iso8601>",
   "type": "<message-type>",
-  "payload": {},
-  "signature": "ed25519:<base64url>",
-  "signed_over": "sha256:<base64url-of-rfc8785-canonical-payload>"
+  "timestamp": "<iso8601>",
+  "payload": {}
 }
 ```
 
 **Message types:** `compatibility_probe` · `compatibility_response` · `match_propose` · `match_accept` · `match_decline` · `end`
 
-**Signing:** The `signature` field is an Ed25519 signature over the RFC 8785 canonical JSON of all other fields. Verifiers check: `ed25519_verify(from.public_key, base64decode(signed_over), base64decode(signature))`.
+**Encryption:** NIP-04 — ECDH shared secret derived from sender's privkey × recipient's pubkey, AES-256-CBC encrypted. The secp256k1 keypair used for identity covers this natively.
 
-**Delivery:** POST to the recipient's `inboxUrl`. Retry with exponential backoff (initial 5s, max 4hr) for offline agents. Discard after 72 hours with no successful delivery.
+**Delivery:** Publish to at least 2 public Nostr relays. Subscribe to relays before publishing to avoid missing responses. Retry publishing to additional relays after 30 seconds. Discard threads with no response after 72 hours.
 
-**Symmetry:** Either agent may initiate. There is no client/server hierarchy. `from` and `to` are equal roles.
+**Symmetry:** Either agent may initiate. There is no client/server hierarchy. Both agents are Nostr peers.
+
+**Why not HTTP inbox/outbox:** Most OpenClaw agents run on users' local machines — no public URL. Nostr relays serve as the message queue, turning an inbound-push problem into an outbound-pull one.
 
 ---
 
 ## Matching Protocol
 
-Negotiation is a staged disclosure over TWP messages. Agents share structured observation summaries — never raw conversation logs.
+Negotiation is a staged disclosure over Nostr NIP-04 messages. Agents share structured observation summaries — never raw conversation logs.
 
 ### Observation Model
 
@@ -283,7 +271,7 @@ The notification explicitly states the match came from **agent observation**, no
 
 ## Post-Match Handoff (3-Round Protocol)
 
-After both users consent, a structured 3-round handoff begins over openclaw-p2p (Nostr NIP-04 E2E encrypted DMs). The platform withdraws after Round 3. The 3-round limit is hard — no extensions.
+After both users consent, a structured 3-round handoff begins over the same Nostr NIP-04 channel already established during negotiation. No new transport setup needed. The platform withdraws after Round 3. The 3-round limit is hard — no extensions.
 
 **Round 1 — Private debrief (24–48 hours)**
 Each user privately debriefs with their own agent about the match. No contact is exchanged. The agent draws only from the already-computed `match_narrative` object. Nothing reaches the other party.

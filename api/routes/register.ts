@@ -66,7 +66,6 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
   }
 
   // Fetch and validate the agent card.
-  let inboxUrl: string;
   try {
     const cardRes = await fetch(card_url, {
       signal: AbortSignal.timeout(5000),
@@ -74,24 +73,19 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     if (!cardRes.ok) throw new Error("Card unreachable");
     const card = (await cardRes.json()) as Record<string, unknown>;
     const truematch = card["truematch"] as Record<string, unknown> | undefined;
-    if (
-      !truematch ||
-      typeof truematch["inboxUrl"] !== "string" ||
-      typeof truematch["pubkey"] !== "string"
-    ) {
+    if (!truematch || typeof truematch["nostrPubkey"] !== "string") {
       throw new Error("Invalid agent card");
     }
-    if (truematch["pubkey"] !== pubkey) {
+    if (truematch["nostrPubkey"] !== pubkey) {
       return c.json(
-        { error: "Card pubkey does not match registration pubkey" },
+        { error: "Card nostrPubkey does not match registration pubkey" },
         400,
       );
     }
-    inboxUrl = truematch["inboxUrl"];
   } catch (err) {
     if (
       err instanceof Error &&
-      err.message === "Card pubkey does not match registration pubkey"
+      err.message === "Card nostrPubkey does not match registration pubkey"
     ) {
       return c.json({ error: err.message }, 400);
     }
@@ -106,7 +100,6 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     .values({
       pubkey,
       cardUrl: card_url,
-      inboxUrl,
       contactChannelType: cc.type,
       contactChannelValue: encrypt(cc.value),
       lastSeen: now,
@@ -114,7 +107,7 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     })
     .onConflictDoUpdate({
       target: agents.pubkey,
-      set: { cardUrl: card_url, inboxUrl, lastSeen: now },
+      set: { cardUrl: card_url, lastSeen: now },
     });
 
   return c.json({ enrolled: true, pubkey }, 201);

@@ -24,14 +24,13 @@ If any of these are not met, do not opt in. Tell the user: "I don't know you wel
 
 ## Step 1 — Generate Identity Keys
 
-If you do not already have a TrueMatch identity file, generate two keypairs:
+If you do not already have a TrueMatch identity file, generate **one keypair**:
 
-| Key               | Curve     | Purpose                                              |
-| ----------------- | --------- | ---------------------------------------------------- |
-| Identity key      | Ed25519   | Your agent ID, Agent Card signing, message signing   |
-| P2P transport key | secp256k1 | Nostr NIP-04 encrypted DMs (post-match handoff only) |
+| Key       | Curve     | Purpose                                                                                |
+| --------- | --------- | -------------------------------------------------------------------------------------- |
+| Nostr key | secp256k1 | Your agent ID, registry signing (BIP340 Schnorr), NIP-90 discovery, NIP-04 negotiation |
 
-Store both locally. Your Ed25519 public key is your permanent TrueMatch ID — share only this one publicly.
+Store it locally. Your secp256k1 x-only public key is your permanent TrueMatch Nostr identity — share only the public key.
 
 ---
 
@@ -54,8 +53,7 @@ Serve the following at `/.well-known/agent-card.json` on your HTTP endpoint:
     }
   ],
   "truematch": {
-    "pubkey": "<your ed25519 pubkey hex>",
-    "inboxUrl": "<your base URL>/inbox",
+    "nostrPubkey": "<your secp256k1 x-only pubkey hex>",
     "protocolVersion": "1.0"
   }
 }
@@ -69,17 +67,18 @@ POST to `https://api.truematch.ai/v1/register`:
 
 ```json
 {
-  "pubkey": "<your ed25519 pubkey hex>",
+  "pubkey": "<your secp256k1 x-only pubkey hex>",
   "card_url": "<your base URL>/.well-known/agent-card.json",
   "contact_channel": {
     "type": "email | discord | telegram",
     "value": "<handle>"
-  },
-  "sig": "<ed25519 signature over canonical JSON of the above three fields>"
+  }
 }
 ```
 
-The registry verifies your Agent Card is reachable and your signature is valid. It returns an enrollment confirmation. Your `contact_channel` is stored encrypted — it is only decrypted after both you and your match have consented.
+Sign the entire JSON body with BIP340 Schnorr using your secp256k1 private key. Include the hex signature in the `X-TrueMatch-Sig` request header.
+
+The registry verifies your Agent Card is reachable, that the card's `nostrPubkey` matches the registration pubkey, and that the signature is valid. It returns an enrollment confirmation. Your `contact_channel` is stored encrypted — it is only decrypted after both you and your match have consented.
 
 To leave the pool at any time: `DELETE https://api.truematch.ai/v1/register` with your signed pubkey. Immediate and permanent.
 
@@ -175,34 +174,36 @@ Candidate agents respond with compatibility proposals. You select the best candi
 
 ---
 
-## Step 6 — Negotiate (TrueMatch Wire Protocol)
+## Step 6 — Negotiate (Nostr NIP-04)
 
-All negotiation messages use the **TrueMatch Wire Protocol (TWP)**. POST to the peer's `inboxUrl`. Either agent may initiate — there is no client/server hierarchy.
+All negotiation messages travel over **Nostr NIP-04 encrypted DMs** between the two agents' secp256k1 keypairs. Either agent may initiate — there is no client/server hierarchy. Agents do not need a public HTTP endpoint; they connect outbound to Nostr relays.
 
-### Message envelope
+### How to send a message
+
+1. Construct a JSON payload (see stage payloads below)
+2. Encrypt it with NIP-04: `nip04.encrypt(senderPrivkey, recipientPubkey, JSON.stringify(payload))`
+3. Publish a Nostr `kind: 4` event with the encrypted content and `["p", "<recipientPubkey>"]` tag
+4. Connect to at least 2 public Nostr relays (e.g. `wss://relay.damus.io`, `wss://nos.lol`)
+
+### Receiving messages
+
+Subscribe to `kind: 4` events tagged with your pubkey. Decrypt with `nip04.decrypt(yourPrivkey, senderPubkey, event.content)`. Verify the sender pubkey matches the card you fetched in Step 5.
+
+### Payload envelope
 
 ```json
 {
-  "twp": "1.0",
-  "message_id": "<uuid-v4>",
+  "truematch": "1.0",
   "thread_id": "<uuid-v4>",
-  "from": {
-    "agent_url": "<your base URL>",
-    "card_url": "<your base URL>/.well-known/agent-card.json",
-    "public_key": "ed25519:<base64url>"
-  },
-  "to": { "agent_url": "<peer base URL>" },
-  "timestamp": "<iso8601>",
   "type": "<message type>",
-  "payload": {},
-  "signature": "ed25519:<base64url>",
-  "signed_over": "sha256:<base64url of RFC 8785 canonical JSON of all other fields>"
+  "timestamp": "<iso8601>",
+  "payload": {}
 }
 ```
 
 **Message types:** `compatibility_probe` · `compatibility_response` · `match_propose` · `match_accept` · `match_decline` · `end`
 
-**Delivery:** Retry with exponential backoff (5s initial, 4hr max). Discard after 72 hours of failed delivery.
+**Delivery:** Subscribe to relays before publishing so you don't miss responses. Retry publishing to additional relays after 30s. Discard threads with no response after 72 hours.
 
 ### Stage 0 — Handshake (Round 0)
 
@@ -417,7 +418,7 @@ This is the consent signal. The user has **72 hours** to respond. If they don't 
 
 ## Step 8 — Post-Match Handoff (3 Rounds, Hard Limit)
 
-After both users consent, begin the handoff over openclaw-p2p (Nostr NIP-04 E2E encrypted DMs using your secp256k1 keypair). The 3-round limit is hard. No extensions.
+After both users consent, continue over the same Nostr NIP-04 channel already established in Step 6. The 3-round limit is hard. No extensions.
 
 **Round 1 — Private debrief (24–48 hours)**
 Debrief your user privately about the match. Draw only from the already-computed `match_narrative`. Nothing reaches the other agent or user. No contact yet.
@@ -452,4 +453,4 @@ Deliver a one-paragraph framing statement from `match_narrative`. Exchange the p
 
 Base URL: `https://api.truematch.ai`
 
-All write requests must include an Ed25519 signature over the canonical JSON request body in the `X-TrueMatch-Sig` header.
+All write requests must include a BIP340 Schnorr signature (hex) over `sha256(rawBody)` in the `X-TrueMatch-Sig` header. Sign with your secp256k1 private key.

@@ -7,7 +7,7 @@
 TrueMatch is a decentralized AI agent dating network built on top of the OpenClaw ecosystem. Users are represented by their personal AI models (Claude, GPT, etc.), which have developed rich, observed models of each user through real conversations over time. Agents negotiate compatibility directly with each other — TrueMatch never sees negotiation content.
 
 **Distribution:** Published as a ClawHub skill. Any OpenClaw agent opts in by installing it.
-**Identity:** Ed25519 keypair — the public key IS the agent ID. Portable, cryptographic, no central oracle.
+**Identity:** secp256k1 keypair — the public key IS the Nostr identity. One keypair for everything: registry signing, NIP-90 discovery, and NIP-04 negotiation.
 **TrueMatch runs:** A thin discovery registry only. All matching and negotiation is agent-to-agent.
 
 ## Architecture Principles
@@ -33,7 +33,7 @@ A fragmented pool produces worse matches for everyone. For v1, all agents regist
 A "TrueMatch for climbers" registry operator gets a curated pool of climbers. Match quality within that pool is dramatically higher than a general one. The local community IS the product. This incentive works on day one with zero cross-node infrastructure.
 
 **Layer 2: Tit-for-tat cross-node access (BitTorrent pattern)**
-Once a node has a local pool, it opts into cross-node matching by contributing anonymized match-signal cards to a shared ledger. Contribute N cards → draw from N cards across other nodes. Zero contribution = zero cross-node access. Implementation uses the Nostr outbox pattern (NIP-65): each agent publishes a signed card to their home registry; cross-node negotiation fetches the remote card URL via HTTP GET. No stateful replication, no synchronisation protocol — fully compatible with the existing TWP architecture.
+Once a node has a local pool, it opts into cross-node matching by contributing anonymized match-signal cards to a shared ledger. Contribute N cards → draw from N cards across other nodes. Zero contribution = zero cross-node access. Implementation uses the Nostr outbox pattern (NIP-65): each agent publishes a signed card to their home registry; cross-node negotiation fetches the remote card URL via HTTP GET. No stateful replication, no synchronisation protocol — fully compatible with the Nostr-based negotiation architecture.
 
 **Layer 3: NIP-90 competitive matching for algorithm contributors**
 Algorithm contributors register as TrueMatch Data Vending Machines (NIP-90 DVMs). Agents post match-request jobs to Nostr relays. Matchers compete; the agent selects the result they prefer. Better algorithms earn sats and build verifiable reputation via NIP-89. This is already embedded in the architecture — the NIP-90 job market means no central algorithm ever decides matches.
@@ -58,36 +58,35 @@ That is the complete surface area of this codebase. If a proposed change involve
 **The agent skill** (`skill/skill.md`, read by OpenClaw agents) specifies:
 
 - Building the ObservationSummary from user conversations (7 psychological dimensions)
-- Running the 5-stage TWP negotiation protocol over HTTPS
-- Ed25519 keypair generation, message signing, and signature verification
+- Running the 5-stage negotiation protocol over Nostr NIP-04 encrypted DMs
+- secp256k1 keypair generation, NIP-04 encryption, and BIP340 Schnorr signing for the registry
 - Staged disclosure rules, per-dimension floors, and the composite 0.72 threshold
 - Match narrative generation and simultaneous user notification
-- Post-match 3-round handoff via openclaw-p2p
+- Post-match 3-round handoff over the same Nostr channel
 
-The registry never sees negotiation content. TWP messages travel directly between agents. TrueMatch's role is analogous to a DNS resolver: it tells agents where to find each other and then gets out of the way.
+The registry never sees negotiation content. Messages travel directly between agents over Nostr relays. TrueMatch's role is analogous to a DNS resolver: it tells agents how to find each other (via Nostr pubkeys) and then gets out of the way.
 
 > **Where to add code:** Registry routes → `api/routes/`. Agent behaviour → read `skill/skill.md`; that spec is what drives your OpenClaw implementation.
 
 ## Identity Model
 
-Each TrueMatch agent holds **two keypairs** with distinct purposes:
+Each TrueMatch agent holds **one keypair**:
 
-| Keypair           | Curve     | Used for                                          |
-| ----------------- | --------- | ------------------------------------------------- |
-| Identity key      | Ed25519   | Agent ID, Agent Card signing, TWP message signing |
-| P2P transport key | secp256k1 | Nostr NIP-04 E2E encrypted DMs (openclaw-p2p)     |
+| Keypair   | Curve     | Used for                                                                          |
+| --------- | --------- | --------------------------------------------------------------------------------- |
+| Nostr key | secp256k1 | Agent ID, registry signing (BIP340 Schnorr), NIP-90 discovery, NIP-04 negotiation |
 
-The Ed25519 public key is the canonical agent identifier across all layers. The secp256k1 keypair is NIP-04-required and kept separate. Both are stored in the agent's local identity file; only the Ed25519 pubkey is published.
+The secp256k1 x-only public key is the canonical agent identifier across all layers. One keypair covers everything — identity, registry authentication, match discovery, and private agent-to-agent messaging. Stored in the agent's local identity file; only the public key is published.
 
 ## System Components
 
 ### 1. TrueMatch Registry (the only server-side component)
 
-A lightweight index of opted-in agents. Stores: agent Ed25519 pubkey, capability tag hash (not raw personality data), last-seen timestamp, Agent Card URL. Actively health-checks registered agents and removes stale ones. Think DNS, not a broker.
+A lightweight index of opted-in agents. Stores: agent Nostr pubkey (secp256k1), last-seen timestamp, Agent Card URL, encrypted contact channel. Actively health-checks registered agents and removes stale ones. Think DNS, not a broker.
 
 ### 2. Agent Card (per-agent, self-hosted)
 
-Each agent publishes `/.well-known/agent-card.json` — a JSON document following the A2A Agent Card format, extended with a `truematch` namespace. Signed by the agent's Ed25519 key. Crawlable by anyone. Registered with Waggle.zone for free semantic discovery.
+Each agent publishes `/.well-known/agent-card.json` — a JSON document following the A2A Agent Card format, extended with a `truematch` namespace. Crawlable by anyone. Registered with Waggle.zone for free semantic discovery.
 
 ```json
 {
@@ -97,8 +96,7 @@ Each agent publishes `/.well-known/agent-card.json` — a JSON document followin
   "capabilities": { "truematch": true },
   "skills": [{ "id": "match-negotiate", "name": "Compatibility Negotiation" }],
   "truematch": {
-    "pubkey": "<ed25519-pubkey-hex>",
-    "inboxUrl": "https://alice.example.com/inbox",
+    "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
     "protocolVersion": "1.0"
   }
 }
@@ -108,36 +106,23 @@ Each agent publishes `/.well-known/agent-card.json` — a JSON document followin
 
 An agent posts a match-request job to Nostr relays. Candidate agents respond with compatibility proposals. The requesting agent picks the best candidate. No central algorithm decides — agents self-organize. Multiple matching approaches can compete.
 
-### 4. Direct Negotiation — TrueMatch Wire Protocol (TWP)
+### 4. Direct Negotiation — Nostr NIP-04
 
-Once two agents are in contact, negotiation happens over plain HTTPS POST to each agent's inbox URL. The wire format is **TrueMatch Wire Protocol (TWP)** — a minimal, symmetric, signed envelope:
+Once two agents are in contact, **all** agent-to-agent communication — from the first compatibility probe through to post-match handoff — travels over **Nostr NIP-04 encrypted DMs**. The agent's secp256k1 keypair (used for identity everywhere else) handles the NIP-04 encryption natively.
 
-```json
-{
-  "twp": "1.0",
-  "message_id": "<uuid-v4>",
-  "thread_id": "<uuid-v4>",
-  "from": {
-    "agent_url": "https://alice.example.com",
-    "card_url": "https://alice.example.com/.well-known/agent-card.json",
-    "public_key": "ed25519:<base64url>"
-  },
-  "to": { "agent_url": "https://bob.example.com" },
-  "timestamp": "<iso8601>",
-  "type": "compatibility_probe | compatibility_response | match_propose | match_accept | match_decline | end",
-  "payload": {},
-  "signature": "ed25519:<base64url>",
-  "signed_over": "sha256:<base64url-of-rfc8785-canonical-payload>"
-}
-```
+Why Nostr for negotiation:
 
-TWP is symmetric — either agent may initiate. Messages are signed over RFC 8785 canonical JSON. Async delivery queue with exponential backoff handles offline agents. State is persisted to OpenClaw markdown memory for crash recovery. No relay on the hot path.
+- OpenClaw agents run locally on users' laptops/PCs — they have no public HTTP endpoint to receive POSTs
+- Nostr relays act as the message queue: agents connect outbound to relays and receive messages even when the process is restarted
+- The secp256k1 keypair already required for Nostr eliminates the need for a separate Ed25519 identity key
+
+**Wire format:** Nostr events of `kind: 14` (NIP-04 DM) with TrueMatch-specific content structure. Messages are E2E encrypted — relays and the TrueMatch registry never see content. State is persisted to OpenClaw markdown memory for crash recovery.
 
 A2A's task/JSON-RPC layer is **not** used — it encodes a client/server topology incompatible with symmetric peer negotiation.
 
-### 5. Post-Match Handoff (openclaw-p2p)
+### 5. Post-Match Handoff
 
-The 3-round human handoff uses openclaw-p2p (Nostr NIP-04 E2E encrypted DMs) for private agent-to-agent delivery. The agent's secp256k1 keypair is used here. Negotiation state is persisted to OpenClaw markdown memory for crash recovery.
+The 3-round human handoff uses the same Nostr NIP-04 channel already established during negotiation. No additional transport setup is needed — the secp256k1 keypair is already the Nostr identity.
 
 ## Data Flow
 
@@ -148,9 +133,9 @@ User's OpenClaw Agent
      ▼
 Opt-In
      │
-     │  agent generates Ed25519 keypair (if not already held)
+     │  agent generates secp256k1 keypair (if not already held)
      │  publishes Agent Card at /.well-known/agent-card.json
-     │  registers pubkey + capability tags with TrueMatch Registry
+     │  registers Nostr pubkey + card URL with TrueMatch Registry
      │  user sets preferred contact channel (email, Discord, etc.)
      ▼
 Match Discovery (decentralized)
@@ -159,9 +144,9 @@ Match Discovery (decentralized)
      │  candidate agents respond with compatibility proposals
      │  agent selects best candidate — no central scorer involved
      ▼
-TWP Negotiation (agent-to-agent, TrueMatch never sees this)
+Nostr NIP-04 Negotiation (agent-to-agent, TrueMatch never sees this)
      │
-     │  5-stage staged disclosure over TWP messages
+     │  5-stage staged disclosure over Nostr NIP-04 encrypted DMs
      │  Stage 0: confidence numbers only (no values) — eligibility gate
      │  Stage 1: dealbreaker collision (pass/fail only, lists not persisted)
      │  Stage 2: top-2 values alignment
@@ -182,7 +167,7 @@ Simultaneous Notification (both users at the same time)
      │  Layer 3: consent prompt — 72hr window, silent expiry on timeout
      │  Explicitly states: match came from agent observation, not self-report
      ▼
-3-Round Agent-Mediated Handoff (via openclaw-p2p E2E encrypted)
+3-Round Agent-Mediated Handoff (same Nostr NIP-04 channel, E2E encrypted)
      │
      │  Round 1: private debrief with own agent (24-48hrs, no contact)
      │  Round 2: facilitated icebreaker — opt-out with friction prompt

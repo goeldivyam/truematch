@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ed25519 } from "@noble/curves/ed25519.js";
+import { schnorr } from "@noble/curves/secp256k1.js";
+import { createHash, randomBytes } from "node:crypto";
 import { verifySignature } from "./verify.js";
+
+function sha256(data: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(data).digest());
+}
 
 function hexFromBytes(bytes: Uint8Array): string {
   return Array.from(bytes)
@@ -10,10 +15,10 @@ function hexFromBytes(bytes: Uint8Array): string {
 
 describe("verifySignature", () => {
   it("returns true for a valid signature", () => {
-    const privkey = ed25519.utils.randomSecretKey();
-    const pubkey = ed25519.getPublicKey(privkey);
+    const privkey = randomBytes(32);
+    const pubkey = schnorr.getPublicKey(privkey);
     const message = new TextEncoder().encode("hello truematch");
-    const sig = ed25519.sign(message, privkey);
+    const sig = schnorr.sign(sha256(message), privkey);
 
     expect(
       verifySignature(hexFromBytes(pubkey), hexFromBytes(sig), message),
@@ -21,10 +26,10 @@ describe("verifySignature", () => {
   });
 
   it("returns false for a tampered message", () => {
-    const privkey = ed25519.utils.randomSecretKey();
-    const pubkey = ed25519.getPublicKey(privkey);
+    const privkey = randomBytes(32);
+    const pubkey = schnorr.getPublicKey(privkey);
     const message = new TextEncoder().encode("hello truematch");
-    const sig = ed25519.sign(message, privkey);
+    const sig = schnorr.sign(sha256(message), privkey);
     const tampered = new TextEncoder().encode("tampered message");
 
     expect(
@@ -33,12 +38,12 @@ describe("verifySignature", () => {
   });
 
   it("returns false for a wrong pubkey", () => {
-    const privkey = ed25519.utils.randomSecretKey();
+    const privkey = randomBytes(32);
     const message = new TextEncoder().encode("hello truematch");
-    const sig = ed25519.sign(message, privkey);
+    const sig = schnorr.sign(sha256(message), privkey);
 
-    const otherPrivkey = ed25519.utils.randomSecretKey();
-    const otherPubkey = ed25519.getPublicKey(otherPrivkey);
+    const otherPrivkey = randomBytes(32);
+    const otherPubkey = schnorr.getPublicKey(otherPrivkey);
 
     expect(
       verifySignature(hexFromBytes(otherPubkey), hexFromBytes(sig), message),
@@ -46,9 +51,9 @@ describe("verifySignature", () => {
   });
 
   it("returns false for malformed pubkey hex", () => {
-    const privkey = ed25519.utils.randomSecretKey();
+    const privkey = randomBytes(32);
     const message = new TextEncoder().encode("hello truematch");
-    const sig = ed25519.sign(message, privkey);
+    const sig = schnorr.sign(sha256(message), privkey);
 
     expect(verifySignature("not-valid-hex", hexFromBytes(sig), message)).toBe(
       false,
@@ -56,8 +61,8 @@ describe("verifySignature", () => {
   });
 
   it("returns false for malformed signature hex", () => {
-    const privkey = ed25519.utils.randomSecretKey();
-    const pubkey = ed25519.getPublicKey(privkey);
+    const privkey = randomBytes(32);
+    const pubkey = schnorr.getPublicKey(privkey);
     const message = new TextEncoder().encode("hello truematch");
 
     expect(

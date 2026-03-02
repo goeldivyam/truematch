@@ -1,11 +1,12 @@
-import { ed25519 } from "@noble/curves/ed25519.js";
+import { schnorr } from "@noble/curves/secp256k1.js";
+import { createHash } from "node:crypto";
 import { createMiddleware } from "hono/factory";
 import type { HonoVariables } from "../types.js";
 
 // Verifies the X-TrueMatch-Sig header against the raw request body.
-// Expects the header value to be a hex-encoded Ed25519 signature.
-// The pubkey is extracted from the parsed body after this middleware runs —
-// routes must call verifySignature() themselves with the parsed body's pubkey.
+// Expects the header value to be a hex-encoded BIP340 Schnorr signature
+// over sha256(rawBody). Pubkey is x-only secp256k1 (32 bytes / 64 hex chars).
+// Routes must call verifySignature() with the parsed body's pubkey field.
 
 export function verifySignature(
   pubkeyHex: string,
@@ -15,7 +16,8 @@ export function verifySignature(
   try {
     const pubkey = hexToBytes(pubkeyHex);
     const sig = hexToBytes(signatureHex);
-    return ed25519.verify(sig, messageBytes, pubkey);
+    const msgHash = createHash("sha256").update(messageBytes).digest();
+    return schnorr.verify(sig, msgHash, pubkey);
   } catch {
     return false;
   }
