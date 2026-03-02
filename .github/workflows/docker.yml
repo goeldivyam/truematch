@@ -2,8 +2,10 @@ name: Docker
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -33,8 +35,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=sha
+          flavor: |
+            latest=false
 
       - name: Build and push
         uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
@@ -43,3 +49,27 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log in to Azure
+        uses: azure/login@a65d910e8af852a8061972b2a74a68a2e0db2c53 # v2.2.0
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@abb5977ad7c8a1d94abf67f7eaefad74f4e2ee07 # v1
+        with:
+          containerAppName: truematch-registry
+          resourceGroup: truematch-rg
+          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          registryServer: ${{ env.REGISTRY }}
+          registryUsername: ${{ github.actor }}
+          registryPassword: ${{ secrets.GHCR_TOKEN }}
