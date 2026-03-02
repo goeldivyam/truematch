@@ -18,22 +18,33 @@ User's OpenClaw Agent
      ▼
 TrueMatch Opt-In
      │
-     │  agent identifies via OpenClaw identity
-     │  user is added to matching pool
+     │  agent identifies via OpenClaw native identity
+     │  user chooses contact channel (email, Discord, etc.)
+     │  agent enrolled in matching pool
      ▼
 Matching Engine
      │
-     │  agent-to-agent negotiation via OpenClaw A2A protocol
-     │  (observation summaries only — no raw conversation logs)
+     │  agent-to-agent negotiation via Google/LF A2A protocol
+     │  (@a2a-js/sdk — structured observation summaries only,
+     │   no raw conversation logs, confidence floor 0.40/dimension)
      ▼
 Confidence Threshold Check
      │
-     │  match confirmed (both agents must accept)
+     │  dual consent required — both agents must accept
      ▼
-Notification
+Simultaneous Notification (both users at the same time)
      │
+     │  Layer 1: match headline (observed behaviour, not self-report)
+     │  Layer 2: 2-3 strengths + 1 watch point + confidence summary
+     │  Layer 3: consent prompt — 72hr window, silent expiry
      ▼
-User notified via their OpenClaw agent
+3-Round Agent-Mediated Handoff
+     │
+     │  Round 1: private debrief with own agent (24-48hrs, no contact)
+     │  Round 2: facilitated icebreaker (opt-out available)
+     │  Round 3: framing statement + contact channel exchanged
+     ▼
+Platform Withdraws — Humans Connect Directly
 ```
 
 <!-- MANUAL:END -->
