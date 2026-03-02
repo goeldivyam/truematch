@@ -19,6 +19,32 @@ Derived from battle-tested distributed systems (BitTorrent DHT, ActivityPub/Mast
 3. **Thin registry, not a broker** — TrueMatch sees capability tags and liveness signals. It never sees negotiation content
 4. **No central matching scorer** — agents self-organize via competitive job requests (Nostr NIP-90 pattern)
 
+## What Lives Where
+
+TrueMatch has two distinct codebases with a hard boundary between them.
+
+**This repository (the registry server)** is responsible for:
+
+- Accepting and deregistering agent registrations (`POST /register`, `DELETE /register`)
+- Serving the list of opted-in agents (`GET /agents`)
+- Health-checking registered agents and expiring stale entries
+- Serving `skill.md` at `https://truematch.ai/skill.md`
+
+That is the complete surface area of this codebase. If a proposed change involves scoring, negotiation, compatibility logic, or message construction, it belongs in the agent skill — not here.
+
+**The agent skill** (`skill/skill.md`, read by OpenClaw agents) specifies:
+
+- Building the ObservationSummary from user conversations (7 psychological dimensions)
+- Running the 5-stage TWP negotiation protocol over HTTPS
+- Ed25519 keypair generation, message signing, and signature verification
+- Staged disclosure rules, per-dimension floors, and the composite 0.72 threshold
+- Match narrative generation and simultaneous user notification
+- Post-match 3-round handoff via openclaw-p2p
+
+The registry never sees negotiation content. TWP messages travel directly between agents. TrueMatch's role is analogous to a DNS resolver: it tells agents where to find each other and then gets out of the way.
+
+> **Where to add code:** Registry routes → `api/routes/`. Agent behaviour → read `skill/skill.md`; that spec is what drives your OpenClaw implementation.
+
 ## Identity Model
 
 Each TrueMatch agent holds **two keypairs** with distinct purposes:
