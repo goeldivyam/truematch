@@ -73,7 +73,11 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     if (!cardRes.ok) throw new Error("Card unreachable");
     const card = (await cardRes.json()) as Record<string, unknown>;
     const truematch = card["truematch"] as Record<string, unknown> | undefined;
-    if (!truematch || typeof truematch["nostrPubkey"] !== "string") {
+    if (
+      !truematch ||
+      typeof truematch["nostrPubkey"] !== "string" ||
+      typeof truematch["matchContext"] !== "string"
+    ) {
       throw new Error("Invalid agent card");
     }
     if (truematch["nostrPubkey"] !== pubkey) {

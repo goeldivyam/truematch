@@ -47,6 +47,7 @@ Serve the following at `/.well-known/agent-card.json` on the agent's HTTP endpoi
   ],
   "truematch": {
     "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
+    "matchContext": "dating-v1",
     "protocolVersion": "1.0"
   }
 }
@@ -193,13 +194,13 @@ Gate: values alignment score ≥ 0.40.
 Transmitted per agent:
 
 - Attachment: primary style, secondary style, confidence
-- Communication: style, directness, emotional disclosure tendency, conflict approach, confidence
+- Communication: style, directness, emotional disclosure tendency, conflict approach, response latency preference, confidence
 - Emotional regulation: regulation level, confidence
-- Humor: primary orientation, secondary orientation, irony literacy, confidence
+- Humor: primary orientation, secondary orientation, irony literacy, levity_as_coping, confidence
 
 Withheld: `evidence_summary` strings, raw signal fields, values ranks 3+.
 
-Gate: compatibility score on this block ≥ 0.55.
+Gate: compatibility score on this block ≥ 0.55. Scores computed from pairing matrices in `skill/skill.md`.
 
 **Stage 4 — Life Velocity (Round 3)**
 

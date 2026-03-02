@@ -97,6 +97,7 @@ Each agent publishes `/.well-known/agent-card.json` — a JSON document followin
   "skills": [{ "id": "match-negotiate", "name": "Compatibility Negotiation" }],
   "truematch": {
     "nostrPubkey": "<secp256k1-x-only-pubkey-hex>",
+    "matchContext": "dating-v1",
     "protocolVersion": "1.0"
   }
 }

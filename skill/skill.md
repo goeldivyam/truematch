@@ -54,6 +54,7 @@ Serve the following at `/.well-known/agent-card.json` on your HTTP endpoint:
   ],
   "truematch": {
     "nostrPubkey": "<your secp256k1 x-only pubkey hex>",
+    "matchContext": "dating-v1",
     "protocolVersion": "1.0"
   }
 }
@@ -128,7 +129,9 @@ Decay constants — volatile: 30 days (humor, emotional regulation). Stable: 90 
 **3. Communication** — Leary circumplex + response rhythm. Max 8 signals.
 
 - Style: `assertive_warm | assertive_cool | passive_warm | passive_cool`
-- Directness (0.0–1.0), emotional disclosure tendency, conflict approach, response rhythm preference
+- Directness (0.0–1.0), emotional disclosure tendency (0.0–1.0)
+- Conflict approach: `collaborative | accommodating | competitive | avoidant | compromising`
+- Response latency preference: `fast_paced | deliberate | unobserved`
 
 **4. Emotional Regulation** — Gross (1998) + Gottman flooding research. Max 10 signals.
 
@@ -138,14 +141,15 @@ Decay constants — volatile: 30 days (humor, emotional regulation). Stable: 90 
 **5. Humor** — Martin (2007). Max 6 signals.
 
 - Primary and secondary orientation: `dry_ironic | absurdist_surreal | warm_playful | observational | self_deprecating | minimal`
-- Irony literacy (boolean) — critical for pairing dry/absurdist styles
-- Levity as coping (boolean)
+- `irony_literacy` (boolean) — required for dry/absurdist pairing; if either agent is `false`, dry_ironic and absurdist_surreal pairing scores are reduced by 0.25
+- `levity_as_coping` (boolean) — whether humor serves as a primary coping mechanism; affects long-term compatibility more than style alignment
 
 **6. Life Velocity** — Levinson / Arnett / Carstensen. Max 8 signals.
 
 - Phase: `building | maintaining | transitioning | winding_down | uncertain`
   ("uncertain" = no clear signal observed; NOT the same as "transitioning")
-- Future orientation, ambition domain array
+- Future orientation: `expansive | focused | contracting | uncertain`
+- Ambition domains (array, up to 3): `career | creative | financial | relational | health | community | learning | spiritual | family`
 
 **7. Dealbreakers** — Binary constraints. Max 5 signals.
 
@@ -293,6 +297,7 @@ Send attachment, communication, emotional regulation, humor. Withhold `evidence_
       "directness": 0.75,
       "emotional_disclosure": 0.6,
       "conflict_approach": "collaborative",
+      "response_latency_pref": "deliberate",
       "confidence": 0.81
     },
     "emotional_reg": { "level": "high", "confidence": 0.55 },
@@ -388,6 +393,110 @@ Both agents share their `proposed_match_narrative`. Merge as follows:
 - `strengths`: union, deduplicated, cap at 3
 - `shared_communication_style`: only include if both agents agree; otherwise omit
 - `watch_points`: the agent with the lower score on that dimension authors it
+
+---
+
+## Compatibility Pairing Matrices
+
+These matrices define `score_i` for each dimension in the composite formula. Scores reflect research-backed pairing outcomes — not similarity. Use these values when computing Stage 5 composite scores.
+
+### Attachment Pairing (Bartholomew & Horowitz)
+
+|                     | secure | anxious_preoccupied | dismissive_avoidant | fearful_avoidant |
+| ------------------- | ------ | ------------------- | ------------------- | ---------------- |
+| secure              | 0.90   | 0.65                | 0.60                | 0.50             |
+| anxious_preoccupied | 0.65   | 0.45                | 0.35                | 0.25             |
+| dismissive_avoidant | 0.60   | 0.35                | 0.55                | 0.40             |
+| fearful_avoidant    | 0.50   | 0.25                | 0.40                | 0.35             |
+
+Rationale: secure + secure is the most researched high-quality pairing. Secure + insecure can work — the secure partner provides regulation. Two insecure styles with opposing needs (anxious + dismissive) is the lowest-compatibility pairing.
+
+### Communication Style Pairing (Leary circumplex)
+
+|                | assertive_warm | assertive_cool | passive_warm | passive_cool |
+| -------------- | -------------- | -------------- | ------------ | ------------ |
+| assertive_warm | 0.85           | 0.70           | 0.80         | 0.55         |
+| assertive_cool | 0.70           | 0.65           | 0.70         | 0.60         |
+| passive_warm   | 0.80           | 0.70           | 0.70         | 0.50         |
+| passive_cool   | 0.55           | 0.60           | 0.50         | 0.60         |
+
+Complement bonus: if `conflict_approach` values are complementary (e.g., one `collaborative` + one `accommodating`), add 0.05. If both `avoidant`, subtract 0.10.
+
+### Emotional Regulation Pairing (Gross / Gottman)
+
+|          | high | moderate | low  |
+| -------- | ---- | -------- | ---- |
+| high     | 0.85 | 0.75     | 0.45 |
+| moderate | 0.75 | 0.80     | 0.60 |
+| low      | 0.45 | 0.60     | 0.40 |
+
+Rationale: high + low is a documented friction pairing — one partner floods emotionally while the other cannot co-regulate. Two low-regulation partners face compounded risk.
+
+### Humor Pairing (Martin)
+
+|                   | dry_ironic | absurdist_surreal | warm_playful | observational | self_deprecating | minimal |
+| ----------------- | ---------- | ----------------- | ------------ | ------------- | ---------------- | ------- |
+| dry_ironic        | 0.90       | 0.80              | 0.55         | 0.75          | 0.65             | 0.40    |
+| absurdist_surreal | 0.80       | 0.90              | 0.50         | 0.65          | 0.55             | 0.35    |
+| warm_playful      | 0.55       | 0.50              | 0.90         | 0.70          | 0.80             | 0.45    |
+| observational     | 0.75       | 0.65              | 0.70         | 0.85          | 0.70             | 0.55    |
+| self_deprecating  | 0.65       | 0.55              | 0.80         | 0.70          | 0.75             | 0.50    |
+| minimal           | 0.40       | 0.35              | 0.45         | 0.55          | 0.50             | 0.70    |
+
+Irony literacy adjustment: if either agent has `irony_literacy === false`, reduce dry_ironic and absurdist_surreal pairing scores by 0.25 before use.
+`levity_as_coping` mismatch (one true, one false): subtract 0.10 from the humor dimension score.
+
+### Values Alignment Score
+
+Values use a weighted overlap formula, not a lookup table:
+
+```
+For each value in Agent A's top 4:
+  if same value appears in Agent B's top 4:
+    weight = 1 / (1 + |rank_A - rank_B|)   // same rank = 1.0, ±1 rank = 0.5, ±2 = 0.33, ±3 = 0.25
+    sum += weight
+
+max_possible = 4 × 1.0 = 4.0
+values_alignment_score = sum / max_possible
+```
+
+### Life Velocity Pairing
+
+|               | building | maintaining | transitioning | winding_down | uncertain |
+| ------------- | -------- | ----------- | ------------- | ------------ | --------- |
+| building      | 0.90     | 0.70        | 0.65          | 0.30         | 0.60      |
+| maintaining   | 0.70     | 0.90        | 0.65          | 0.55         | 0.65      |
+| transitioning | 0.65     | 0.65        | 0.75          | 0.55         | 0.65      |
+| winding_down  | 0.30     | 0.55        | 0.55          | 0.90         | 0.60      |
+| uncertain     | 0.60     | 0.65        | 0.65          | 0.60         | 0.70      |
+
+`building` + `winding_down` is the "different life stages" conflict. The soft gate at Stage 4 exists precisely to allow agents to assess whether the velocity difference is actually complementary before terminating.
+
+---
+
+## State Persistence (Crash Recovery)
+
+Persist negotiation state to your OpenClaw memory file after every stage. Key: `truematch/threads/<thread_id>.md`.
+
+Write the following fields after each stage completes:
+
+```markdown
+# TrueMatch Thread <thread_id>
+
+- status: negotiating | match_proposed | consented | completed | ended
+- peer_pubkey: <hex>
+- peer_card_url: <url>
+- stage_reached: 0–5
+- my_composite_score: <float | null>
+- peer_composite_score_confirmed: <boolean>
+- match_narrative: <json blob | null>
+- consent_deadline: <iso8601 | null>
+- last_updated: <iso8601>
+```
+
+On restart: scan for threads with `status: negotiating`. If `last_updated` is within 72 hours, resume from `stage_reached`. If older, send `end` to peer and mark `status: ended`.
+
+Do not persist: peer's dealbreaker constraint list (discard after Stage 1 pass/fail response). Do not persist: raw stage payloads received from peer (only the derived scores).
 
 ---
 
