@@ -19,6 +19,17 @@ Derived from battle-tested distributed systems (BitTorrent DHT, ActivityPub/Mast
 3. **Thin registry, not a broker** — TrueMatch sees capability tags and liveness signals. It never sees negotiation content
 4. **No central matching scorer** — agents self-organize via competitive job requests (Nostr NIP-90 pattern)
 
+## Identity Model
+
+Each TrueMatch agent holds **two keypairs** with distinct purposes:
+
+| Keypair           | Curve     | Used for                                          |
+| ----------------- | --------- | ------------------------------------------------- |
+| Identity key      | Ed25519   | Agent ID, Agent Card signing, TWP message signing |
+| P2P transport key | secp256k1 | Nostr NIP-04 E2E encrypted DMs (openclaw-p2p)     |
+
+The Ed25519 public key is the canonical agent identifier across all layers. The secp256k1 keypair is NIP-04-required and kept separate. Both are stored in the agent's local identity file; only the Ed25519 pubkey is published.
+
 ## System Components
 
 ### 1. TrueMatch Registry (the only server-side component)
@@ -27,19 +38,57 @@ A lightweight index of opted-in agents. Stores: agent Ed25519 pubkey, capability
 
 ### 2. Agent Card (per-agent, self-hosted)
 
-Each agent publishes `/.well-known/agent-card.json` — a signed JSON document declaring its endpoint URL, capability tags, and auth scheme. Inspired by Google A2A Agent Card format. Signed by the agent's Ed25519 key. Crawlable by anyone.
+Each agent publishes `/.well-known/agent-card.json` — a JSON document following the A2A Agent Card format, extended with a `truematch` namespace. Signed by the agent's Ed25519 key. Crawlable by anyone. Registered with Waggle.zone for free semantic discovery.
+
+```json
+{
+  "name": "Alice's TrueMatch Agent",
+  "url": "https://alice.example.com",
+  "version": "1.0.0",
+  "capabilities": { "truematch": true },
+  "skills": [{ "id": "match-negotiate", "name": "Compatibility Negotiation" }],
+  "truematch": {
+    "pubkey": "<ed25519-pubkey-hex>",
+    "inboxUrl": "https://alice.example.com/inbox",
+    "protocolVersion": "1.0"
+  }
+}
+```
 
 ### 3. Competitive Match Discovery (Nostr NIP-90)
 
 An agent posts a match-request job to Nostr relays. Candidate agents respond with compatibility proposals. The requesting agent picks the best candidate. No central algorithm decides — agents self-organize. Multiple matching approaches can compete.
 
-### 4. Direct Negotiation (inbox/outbox)
+### 4. Direct Negotiation — TrueMatch Wire Protocol (TWP)
 
-Once two agents are in contact, negotiation happens via direct HTTP inbox POST (ActivityPub-style). Async delivery queue with exponential backoff handles offline agents. No relay on the hot path. All messages are signed.
+Once two agents are in contact, negotiation happens over plain HTTPS POST to each agent's inbox URL. The wire format is **TrueMatch Wire Protocol (TWP)** — a minimal, symmetric, signed envelope:
+
+```json
+{
+  "twp": "1.0",
+  "message_id": "<uuid-v4>",
+  "thread_id": "<uuid-v4>",
+  "from": {
+    "agent_url": "https://alice.example.com",
+    "card_url": "https://alice.example.com/.well-known/agent-card.json",
+    "public_key": "ed25519:<base64url>"
+  },
+  "to": { "agent_url": "https://bob.example.com" },
+  "timestamp": "<iso8601>",
+  "type": "compatibility_probe | compatibility_response | match_propose | match_accept | match_decline | end",
+  "payload": {},
+  "signature": "ed25519:<base64url>",
+  "signed_over": "sha256:<base64url-of-rfc8785-canonical-payload>"
+}
+```
+
+TWP is symmetric — either agent may initiate. Messages are signed over RFC 8785 canonical JSON. Async delivery queue with exponential backoff handles offline agents. State is persisted to OpenClaw markdown memory for crash recovery. No relay on the hot path.
+
+A2A's task/JSON-RPC layer is **not** used — it encodes a client/server topology incompatible with symmetric peer negotiation.
 
 ### 5. Post-Match Handoff (openclaw-p2p)
 
-The 3-round human handoff uses openclaw-p2p (Nostr NIP-04 E2E encrypted DMs) for private agent-to-agent delivery. Negotiation state is persisted to OpenClaw markdown memory for crash recovery.
+The 3-round human handoff uses openclaw-p2p (Nostr NIP-04 E2E encrypted DMs) for private agent-to-agent delivery. The agent's secp256k1 keypair is used here. Negotiation state is persisted to OpenClaw markdown memory for crash recovery.
 
 ## Data Flow
 
@@ -61,14 +110,19 @@ Match Discovery (decentralized)
      │  candidate agents respond with compatibility proposals
      │  agent selects best candidate — no central scorer involved
      ▼
-Direct Negotiation (agent-to-agent, TrueMatch never sees this)
+TWP Negotiation (agent-to-agent, TrueMatch never sees this)
      │
-     │  structured observation summaries exchanged via HTTP inbox
-     │  confidence floor: 0.40 per psychological dimension
-     │  5-7 rounds max, 30s timeout per round
+     │  5-stage staged disclosure over TWP messages
+     │  Stage 0: confidence numbers only (no values) — eligibility gate
+     │  Stage 1: dealbreaker collision (pass/fail only, lists not persisted)
+     │  Stage 2: top-2 values alignment
+     │  Stage 3: attachment + communication + emotional regulation + humor
+     │  Stage 4: life velocity + values extended (ranks 3-4)
+     │  Stage 5: composite scoring + proposed match_narrative
+     │  per-dimension floor: 0.40 | composite threshold: 0.72 (double-lock)
      │  state persisted to OpenClaw memory for crash recovery
      ▼
-Confidence Threshold Reached
+Confidence Threshold Reached (both agents independently >= 0.72)
      │
      │  dual consent required — both agents must accept
      ▼
