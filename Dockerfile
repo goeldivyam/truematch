@@ -20,7 +20,7 @@ RUN npm install -g pnpm@9
 
 # Only production dependencies
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # Copy compiled output and runtime assets
 COPY --from=builder /app/dist ./dist
