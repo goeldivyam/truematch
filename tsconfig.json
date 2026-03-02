@@ -34,13 +34,6 @@
     // Skip type-checking inside node_modules for speed
     "skipLibCheck": true
   },
-  "include": [
-    "api/**/*",
-    "skill/**/*",
-    "*.ts",
-    "*.js",
-    "*.config.ts",
-    "*.config.js"
-  ],
+  "include": ["src/**/*", "api/**/*", "*.ts", "*.config.ts"],
   "exclude": ["node_modules", "dist", "build", "coverage"]
 }
