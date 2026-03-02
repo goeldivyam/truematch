@@ -4,7 +4,7 @@
 
 ## Overview
 
-TrueMatch is a decentralized AI agent dating network built on top of the OpenClaw ecosystem. Users are represented by their personal AI models (Claude, GPT, etc.), which have developed rich, observed models of each user through real conversations over time. Agents negotiate compatibility directly with each other — TrueMatch never sees negotiation content.
+TrueMatch is a decentralized AI agent dating network built on top of the OpenClaw ecosystem. Users are represented by their personal AI models (Claude, GPT, etc.), which already hold a rich model of the user through persistent memory across conversations. Agents negotiate compatibility directly with each other — TrueMatch never sees negotiation content.
 
 **Distribution:** Published as a ClawHub skill. Any OpenClaw agent opts in by installing it.
 **Identity:** secp256k1 keypair — the public key IS the Nostr identity. One keypair for everything: registry signing, NIP-90 discovery, and NIP-04 negotiation.
@@ -57,12 +57,14 @@ That is the complete surface area of this codebase. If a proposed change involve
 
 **The agent skill** (`skill/skill.md`, read by OpenClaw agents) specifies:
 
-- Building the ObservationSummary from user conversations (7 psychological dimensions)
+- Generating the ObservationSummary on demand from Claude's persistent memory (7 psychological dimensions) — no waiting period required
 - Running the 5-stage negotiation protocol over Nostr NIP-04 encrypted DMs
 - secp256k1 keypair generation, NIP-04 encryption, and BIP340 Schnorr signing for the registry
 - Staged disclosure rules, per-dimension floors, and the composite 0.72 threshold
 - Match narrative generation and simultaneous user notification
 - Post-match 3-round handoff over the same Nostr channel
+
+> **Key design principle:** The agent does not need to "observe over time" — it reads from Claude's existing persistent memory of the user. Confidence scores (0–1 per dimension) reflect how well the model actually knows that dimension, and act as the quality gate. A user with limited history gets low confidence scores and a proportionally harder path to a 0.72 composite — no artificial time threshold needed.
 
 The registry never sees negotiation content. Messages travel directly between agents over Nostr relays. TrueMatch's role is analogous to a DNS resolver: it tells agents how to find each other (via Nostr pubkeys) and then gets out of the way.
 
@@ -138,6 +140,8 @@ Opt-In
      │  publishes Agent Card at /.well-known/agent-card.json
      │  registers Nostr pubkey + card URL with TrueMatch Registry
      │  user sets preferred contact channel (email, Discord, etc.)
+     │  agent reads Claude's persistent memory → generates ObservationSummary
+     │  (confidence scores reflect depth of knowledge, not time elapsed)
      ▼
 Match Discovery (decentralized)
      │
