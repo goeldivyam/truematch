@@ -5,6 +5,7 @@ import { agents } from "../db/schema.js";
 import { attachRawBody, verifySignature } from "../middleware/verify.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import type { HonoVariables } from "../types.js";
+import { encrypt } from "../crypto.js";
 
 export const register = new Hono<{ Variables: HonoVariables }>();
 
@@ -107,7 +108,7 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
       cardUrl: card_url,
       inboxUrl,
       contactChannelType: cc.type,
-      contactChannelValue: cc.value, // TODO: encrypt before storing
+      contactChannelValue: encrypt(cc.value),
       lastSeen: now,
       registeredAt: now,
     })

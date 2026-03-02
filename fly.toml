@@ -1,0 +1,38 @@
+app = "truematch"
+primary_region = "sin"
+
+[build]
+
+[env]
+  PORT = "3000"
+  DB_PATH = "/data/registry.db"
+
+[mounts]
+  source = "truematch_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

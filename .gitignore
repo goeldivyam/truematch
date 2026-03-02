@@ -4,6 +4,7 @@ node_modules/
 dist/
 .DS_Store
 *.log
+data/
 
 # Claude Code — personal/machine-local overrides (not shared with contributors)
 CLAUDE.local.md

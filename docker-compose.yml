@@ -1,0 +1,26 @@
+services:
+  truematch:
+    image: ghcr.io/goeldivyam/truematch:latest
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  data:
