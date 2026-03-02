@@ -96,7 +96,7 @@ async function cmdSetup(): Promise<void> {
   const identity = await getOrCreateIdentity();
 
   const contactType = (args["contact-type"] ?? "email") as ContactType;
-  const contactValue = args["contact-value"];
+  const contactValue = args["contact-value"] as string | undefined;
 
   if (!contactValue) {
     console.log(`Identity ready. npub: ${identity.npub}
