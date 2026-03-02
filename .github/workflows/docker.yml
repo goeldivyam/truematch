@@ -73,6 +73,6 @@ jobs:
           containerAppName: truematch-registry
           resourceGroup: truematch-rg
           imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          registryServer: ${{ env.REGISTRY }}
+          registryUrl: ${{ env.REGISTRY }}
           registryUsername: ${{ github.actor }}
           registryPassword: ${{ secrets.GHCR_TOKEN }}
