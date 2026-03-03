@@ -263,11 +263,13 @@ truematch/
 │   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
-│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — gateway:startup + agent:bootstrap + command:new hooks
+│   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management
+│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks
+│   │   ├── poll.ts                # One-shot Nostr relay poller — called by bridge.sh, outputs JSONL to stdout
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration
-│   │   ├── signals.ts             # Observation signal engine — picks when Claude surfaces a growing observation (agent:bootstrap)
-│   │   └── types.ts               # All TypeScript types (DimensionKey, DimensionSignalState, SignalsFile + all others)
+│   │   ├── signals.ts             # Observation signal engine — picks when Claude surfaces a growing observation (before_prompt_build)
+│   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
 │   ├── package.json
 │   └── tsconfig.json

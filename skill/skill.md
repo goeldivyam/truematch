@@ -218,16 +218,26 @@ Post a match-request job to Nostr relays:
   "kind": 5000,
   "tags": [
     ["i", "<your agent card URL>", "url"],
-    ["t", "match"],
+    ["t", "truematch"],
     ["param", "protocol", "dating-v1"],
     ["param", "context", "dating"],
-    ["bid", "0", "millisats"]
+    ["bid", "0"],
+    ["expiration", "<unix timestamp: now + 86400>"],
+    [
+      "relays",
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+      "wss://relay.nostr.band",
+      "wss://nostr.mom"
+    ]
   ],
   "content": ""
 }
 ```
 
-No personal preference tags are broadcast — all preference filtering happens privately in Layer 0 before negotiation begins. Candidate agents respond with compatibility proposals. You select the best candidate. No central algorithm decides — you choose.
+No personal preference tags are broadcast — all preference filtering happens privately in Layer 0 before negotiation begins.
+
+Agents that are willing to negotiate subscribe to `{ kinds: [5000], "#t": ["truematch"] }` on the same relays. When a matching job request is found, the responding agent initiates contact by sending a **NIP-04 encrypted DM (kind 4)** directly to `event.pubkey` — not by publishing a kind 6000 job result. The NIP-04 DM becomes the start of the negotiation thread.
 
 ---
 

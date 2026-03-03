@@ -53,6 +53,12 @@ import {
   subscribeToMessages,
   DEFAULT_RELAYS,
 } from "./nostr.js";
+import {
+  writePendingNotificationIfMatched,
+  advanceHandoff,
+  listActiveHandoffs,
+  loadHandoffState,
+} from "./handoff.js";
 import type {
   ContactType,
   ObservationSummary,
@@ -78,6 +84,13 @@ const { values: args, positionals } = parseArgs({
     propose: { type: "boolean" },
     decline: { type: "boolean" },
     messages: { type: "boolean" },
+    round: { type: "string" },
+    "match-id": { type: "string" },
+    consent: { type: "string" },
+    prompt: { type: "string" },
+    response: { type: "string" },
+    "opt-out": { type: "boolean" },
+    exchange: { type: "boolean" },
   },
   allowPositionals: true,
   strict: false,
@@ -104,6 +117,9 @@ async function main(): Promise<void> {
     case "match":
       await cmdMatch();
       break;
+    case "handoff":
+      await cmdHandoff();
+      break;
     case "deregister":
       await cmdDeregister();
       break;
@@ -116,6 +132,7 @@ Commands:
   observe      View or update the ObservationSummary
   preferences  Set or view Layer 0 matching filters (gender, location, age)
   match        Manage matching negotiations
+  handoff      Advance post-match handoff rounds (1→2→3)
   deregister   Remove from the matching pool
 
 Run with --help on any command for options.`);
@@ -444,8 +461,18 @@ async function cmdMatch(): Promise<void> {
       DEFAULT_RELAYS,
     );
     if (state.status === "matched") {
+      if (state.match_narrative) {
+        writePendingNotificationIfMatched(
+          state.thread_id,
+          state.peer_pubkey,
+          state.match_narrative,
+        );
+      }
       console.log("MATCH CONFIRMED (double-lock cleared).");
       console.log("Headline:", state.match_narrative?.headline ?? "(pending)");
+      console.log(
+        "\nNotification queued — Claude will surface this naturally in the next session.",
+      );
     } else {
       console.log(
         `Match proposal sent. Waiting for peer's proposal (thread ${thread_id.slice(0, 8)}...)`,
@@ -570,10 +597,20 @@ async function cmdMatch(): Promise<void> {
         if (!updated) return; // rejected (e.g. invalid thread_id)
 
         if (updated.status === "matched") {
+          if (updated.match_narrative) {
+            writePendingNotificationIfMatched(
+              updated.thread_id,
+              updated.peer_pubkey,
+              updated.match_narrative,
+            );
+          }
           console.log("\nMATCH CONFIRMED.");
           console.log(
             "Headline:",
             updated.match_narrative?.headline ?? "(pending)",
+          );
+          console.log(
+            "Notification queued — Claude will surface this naturally in the next session.",
           );
           unsubscribe();
           process.exit(0);
@@ -606,6 +643,65 @@ async function cmdMatch(): Promise<void> {
   truematch match --propose --thread <id> --write '<narrative-json>'
   truematch match --decline --thread <id>           End the negotiation
   truematch match --reset --thread <id>             Force-reset thread state`);
+}
+
+// ── handoff ───────────────────────────────────────────────────────────────────
+
+async function cmdHandoff(): Promise<void> {
+  const matchId = args["match-id"] as string | undefined;
+
+  // --status (no match-id): list all active handoffs
+  if (!matchId && args["status"]) {
+    const active = listActiveHandoffs();
+    if (active.length === 0) {
+      console.log("No active handoffs.");
+    } else {
+      for (const h of active) {
+        console.log(
+          `${h.match_id.slice(0, 8)}... — round ${h.current_round}/3 — ${h.status}`,
+        );
+      }
+    }
+    return;
+  }
+
+  if (!matchId) {
+    console.log(`Usage:
+  truematch handoff --status                                    List active handoffs
+  truematch handoff --round 1 --match-id <id> --consent "<response>"
+  truematch handoff --round 2 --match-id <id> --prompt "<icebreaker>"
+  truematch handoff --round 2 --match-id <id> --response "<user response>"
+  truematch handoff --round 2 --match-id <id> --opt-out
+  truematch handoff --round 3 --match-id <id> --exchange`);
+    return;
+  }
+
+  const roundArg = args["round"] as string | undefined;
+  if (!roundArg) {
+    // Show handoff state for a specific match
+    const state = loadHandoffState(matchId);
+    if (!state) {
+      console.log(`Handoff ${matchId} not found.`);
+    } else {
+      console.log(JSON.stringify(state, null, 2));
+    }
+    return;
+  }
+
+  const round = parseInt(roundArg, 10) as 1 | 2 | 3;
+  if (![1, 2, 3].includes(round)) {
+    console.error("--round must be 1, 2, or 3");
+    process.exit(1);
+  }
+
+  const result = advanceHandoff(matchId, round, {
+    consent: args["consent"] as string | undefined,
+    prompt: args["prompt"] as string | undefined,
+    response: args["response"] as string | undefined,
+    optOut: args["opt-out"] as boolean | undefined,
+    exchange: args["exchange"] as boolean | undefined,
+  });
+  console.log(result);
 }
 
 // ── deregister ────────────────────────────────────────────────────────────────

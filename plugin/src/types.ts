@@ -133,6 +133,45 @@ export interface MatchNarrative {
   confidence_summary: string;
 }
 
+// ── Post-match notification + handoff ────────────────────────────────────────
+
+/**
+ * Written to ~/.truematch/pending_notification.json by the CLI when a double-lock
+ * match is confirmed. Consumed and deleted by the agent:bootstrap / before_prompt_build
+ * hook on the user's next session.
+ */
+export interface PendingNotification {
+  match_id: string;
+  peer_pubkey: string;
+  narrative: MatchNarrative;
+  confirmed_at: string; // ISO 8601
+}
+
+export type HandoffRound = 1 | 2 | 3;
+export type HandoffStatus =
+  | "pending_consent" // match confirmed, user not yet told
+  | "round_1" // user has been told, waiting for icebreaker response
+  | "round_2" // icebreaker exchanged, waiting for contact exchange
+  | "round_3" // contact exchanged, platform withdrawn
+  | "complete" // all 3 rounds done
+  | "expired"; // 72-hour consent window elapsed
+
+/**
+ * Persisted in ~/.truematch/handoffs/<match_id>/state.json.
+ * Each round is gated by state transitions Claude writes to disk.
+ */
+export interface HandoffState {
+  match_id: string;
+  peer_pubkey: string;
+  current_round: HandoffRound;
+  status: HandoffStatus;
+  narrative: MatchNarrative;
+  created_at: string; // ISO 8601
+  consent_at?: string; // set when user responds to the match notification
+  icebreaker_prompt?: string; // generated in Round 2
+  icebreaker_response?: string; // user's response in Round 2
+}
+
 // ── Observation signals ───────────────────────────────────────────────────────
 
 export type DimensionKey =

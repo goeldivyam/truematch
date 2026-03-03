@@ -9,6 +9,12 @@ import {
   buildSignalInstruction,
   recordSignalDelivered,
 } from "./signals.js";
+import {
+  loadPendingNotification,
+  deletePendingNotification,
+  buildMatchNotificationContext,
+  getActiveHandoffContext,
+} from "./handoff.js";
 import type { ObservationSummary } from "./types.js";
 
 const TRUEMATCH_DIR = join(homedir(), ".truematch");
@@ -23,9 +29,10 @@ const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
  * The `register(api)` function wires up lifecycle hooks and tools.
  *
  * Hooks registered:
- *   gateway:startup  — detects first-run and missing preferences at boot
- *   agent:bootstrap  — injects observation signal into Claude's context when confidence grows
- *   command:new      — on /new: runs setup, preferences, or observation update
+ *   gateway:startup      — detects first-run and missing preferences at boot
+ *   session_start        — resets per-session delivery flags
+ *   before_prompt_build  — injects match notification, handoff context, observation signal
+ *   command:new          — on /new: runs setup, preferences, or observation update
  *
  * Tools registered:
  *   truematch_update_prefs — handles /truematch-prefs slash command (non-observational)
@@ -48,15 +55,30 @@ interface PluginEvent {
   messages: string[];
 }
 
-/** Returned from hooks that need to inject into Claude's context (agent:bootstrap). */
-interface PluginContextReturn {
+interface PluginHookBeforePromptBuildResult {
   prependContext?: string;
+  systemPrompt?: string;
 }
 
 interface PluginAPI {
+  // Typed hook registration (supports return values collected by OpenClaw runtime)
+  on(
+    event: "before_prompt_build",
+    handler: (
+      event: PluginEvent,
+    ) =>
+      | PluginHookBeforePromptBuildResult
+      | void
+      | Promise<PluginHookBeforePromptBuildResult | void>,
+  ): void;
+  on(
+    event: "session_start" | "session_end",
+    handler: (event: PluginEvent) => void | Promise<void>,
+  ): void;
+  // Generic string hook registration (return values are discarded)
   registerHook(
     event: string,
-    handler: (event: PluginEvent) => void | PluginContextReturn,
+    handler: (event: PluginEvent) => void,
     meta?: { name?: string; description?: string },
   ): void;
   registerTool(tool: {
@@ -65,6 +87,13 @@ interface PluginAPI {
     handler: (rawArgs: string) => string;
   }): void;
 }
+
+// Per-session delivery flags — reset on session_start, prevent re-injection within a session.
+// Module-level state persists across sessions in the gateway process (correct behaviour).
+const sessionFlags = {
+  signalDelivered: false,
+  notificationDelivered: false,
+};
 
 // Module-scoped flags set at gateway:startup, consumed at first command:new.
 // Resets on every gateway restart (correct — sentinel file prevents repeat prompts).
@@ -262,47 +291,70 @@ export default {
       },
     );
 
-    // ── Hook: agent:bootstrap ─────────────────────────────────────────────────
-    // Fires when Claude's system prompt is being assembled for a new session.
-    // Returns { prependContext } to inject an observation signal into Claude's context.
-    // This is the correct injection point — command:new messages go to the user;
-    // agent:bootstrap content goes into Claude's context directly.
+    // ── Hook: session_start ───────────────────────────────────────────────────
+    // Reset per-session delivery flags so signals and notifications fire at most
+    // once per session even though before_prompt_build fires on every LLM invocation.
+    api.on("session_start", () => {
+      sessionFlags.signalDelivered = false;
+      sessionFlags.notificationDelivered = false;
+    });
+
+    // ── Hook: before_prompt_build ─────────────────────────────────────────────
+    // Fires on every LLM invocation. Returns prependContext injected into Claude's
+    // context before the model sees the conversation.
     //
-    // Signal conditions (psychologist + teen researcher findings):
-    //   - Minimum 2 prior conversations before first signal
-    //   - Minimum 5-day quiet period between signals for the same dimension
-    //   - Confidence must have grown ≥ 0.15 since last signal
-    //   - One signal per session — pick the dimension with the largest growth delta
-    //   - Signal state is written BEFORE returning (prevents re-fire on crash)
-    api.registerHook(
-      "agent:bootstrap",
-      (): void | PluginContextReturn => {
-        const obs = loadObservation();
-        if (!obs) return;
+    // NOTE: api.registerHook return values are silently discarded by the OpenClaw
+    // runtime (InternalHookHandler is typed as void). api.on("before_prompt_build")
+    // is the ONLY correct API for prependContext injection — its return value is
+    // collected and merged by runBeforePromptBuild in src/plugins/hooks.ts.
+    //
+    // Priority order (highest first):
+    //   1. Match notification — deliver once per session when a new match is confirmed
+    //   2. Handoff round context — frame Claude's role in the active handoff round
+    //   3. Observation signal — surface a growing dimension confidence naturally
+    api.on(
+      "before_prompt_build",
+      (): PluginHookBeforePromptBuildResult | void => {
+        const parts: string[] = [];
 
-        const signals = loadSignals();
-        const pending = pickPendingSignal(obs, signals);
-        if (!pending) return;
+        // 1. Match notification (once per session)
+        if (!sessionFlags.notificationDelivered) {
+          const notification = loadPendingNotification();
+          if (notification) {
+            // Mark delivered BEFORE injecting — prevents re-fire if session crashes
+            deletePendingNotification();
+            sessionFlags.notificationDelivered = true;
+            parts.push(buildMatchNotificationContext(notification));
+          }
+        }
 
-        // Write state BEFORE returning — prevents re-fire if session crashes after injection
-        const updated = recordSignalDelivered(
-          signals,
-          pending.dimension,
-          pending.confidence,
-        );
-        saveSignals(updated);
+        // 2. Handoff round context
+        const handoffCtx = getActiveHandoffContext();
+        if (handoffCtx) parts.push(handoffCtx);
 
-        return {
-          prependContext: buildSignalInstruction(
-            pending.dimension,
-            pending.confidence,
-          ),
-        };
-      },
-      {
-        name: "TrueMatch observation signal",
-        description:
-          "Injects a natural observation note into Claude's context when confidence on a dimension has grown meaningfully",
+        // 3. Observation signal (once per session — ≥2 sessions, ≥0.15 delta, ≥5 day quiet)
+        if (!sessionFlags.signalDelivered) {
+          const obs = loadObservation();
+          if (obs) {
+            const signals = loadSignals();
+            const pending = pickPendingSignal(obs, signals);
+            if (pending) {
+              const updated = recordSignalDelivered(
+                signals,
+                pending.dimension,
+                pending.confidence,
+              );
+              saveSignals(updated);
+              sessionFlags.signalDelivered = true;
+              parts.push(
+                buildSignalInstruction(pending.dimension, pending.confidence),
+              );
+            }
+          }
+        }
+
+        if (parts.length === 0) return;
+        return { prependContext: parts.join("\n\n---\n\n") };
       },
     );
 

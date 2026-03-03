@@ -102,11 +102,26 @@ Read the thread history at ~/.truematch/threads/${thread_id}.json, then respond 
     2>&1 || echo "Claude session error for thread $thread_id"
 }
 
+# Resolve path to poll.js (compiled from plugin/src/poll.ts, installed with truematch CLI)
+POLL_JS=""
+if command -v truematch &>/dev/null; then
+  TRUEMATCH_BIN_DIR="$(dirname "$(command -v truematch)")"
+  # npm global install layout: bin/../lib/node_modules/truematch-plugin/dist/poll.js
+  CANDIDATE="${TRUEMATCH_BIN_DIR}/../lib/node_modules/truematch-plugin/dist/poll.js"
+  if [[ -f "$CANDIDATE" ]]; then
+    POLL_JS="$CANDIDATE"
+  fi
+fi
+if [[ -z "$POLL_JS" ]]; then
+  echo "ERROR: poll.js not found. Install truematch-plugin (npm install -g truematch-plugin)" >&2
+  exit 1
+fi
+
 # Main polling loop
 while true; do
-  # Poll for new messages using the truematch subscribe command
-  # Output format: one JSON object per line (JSONL)
-  if node "$TRUEMATCH_DIR/scripts/poll.js" >> "$QUEUE_FILE" 2>/dev/null; then
+  # Poll for new messages — outputs JSONL (one message per line) via poll.js
+  # Errors from poll go to bridge.log; JSONL output appended to the queue file
+  if node "$POLL_JS" >> "$QUEUE_FILE" 2>>"${TRUEMATCH_DIR}/bridge.log"; then
     # Process any queued messages
     if [[ -s "$QUEUE_FILE" ]]; then
       while IFS= read -r line; do
