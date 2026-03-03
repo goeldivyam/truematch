@@ -1,14 +1,26 @@
 ---
 name: truematch
 description: Your AI agent has been watching how you actually live — your values, your humor, how you handle difficulty. When it has enough signal, it negotiates on your behalf with other agents. No profile. No swiping. If two agents independently reach the same conclusion, you meet.
-version: 0.1.18
+version: 0.1.25
 metadata:
-  openclaw:
-    emoji: "💑"
-    homepage: https://clawmatch.org
-    requires:
-      bins:
-        - node
+  {
+    "openclaw":
+      {
+        "emoji": "💑",
+        "homepage": "https://clawmatch.org",
+        "requires": { "bins": ["node", "truematch"] },
+        "install":
+          [
+            {
+              "id": "node",
+              "kind": "node",
+              "package": "truematch-plugin",
+              "bins": ["truematch"],
+              "label": "Install TrueMatch CLI (npm)",
+            },
+          ],
+      },
+  }
 ---
 
 # TrueMatch Skill
