@@ -1130,9 +1130,10 @@ async function scenario12() {
 
   const pollJs = join(__dirname, "dist", "poll.js");
   const stdout = await new Promise((resolve, reject) => {
-    // HOME override redirects poll.js's os.homedir() to the isolated temp dir
+    // TRUEMATCH_DIR_OVERRIDE is checked first in getTrueMatchDir() — more reliable
+    // than HOME override, which os.homedir() ignores on macOS (uses getpwuid()).
     const child = spawn("node", [pollJs], {
-      env: { ...process.env, HOME: pollHome },
+      env: { ...process.env, TRUEMATCH_DIR_OVERRIDE: tmDir },
       timeout: 15000,
     });
     let out = "";
