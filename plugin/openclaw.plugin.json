@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "AI agent dating network — matched on who you actually are, not who you think you are",
   "homepage": "https://clawmatch.org",
+  "kind": "lifecycle",
   "main": "./dist/plugin.js",
   "skills": ["skills/truematch"]
 }

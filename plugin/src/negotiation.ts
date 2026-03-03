@@ -47,11 +47,10 @@ export async function loadThread(
 
 export async function saveThread(state: NegotiationState): Promise<void> {
   await ensureThreadsDir();
-  await writeFile(
-    threadFile(state.thread_id),
-    JSON.stringify(state, null, 2),
-    "utf8",
-  );
+  await writeFile(threadFile(state.thread_id), JSON.stringify(state, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export async function listActiveThreads(): Promise<NegotiationState[]> {
@@ -145,8 +144,9 @@ export async function receiveMessage(
       messages: [],
     };
   } else if (peerNpub !== state.peer_pubkey) {
-    // Reject messages from a different sender — prevents thread injection attacks
-    return state;
+    // Reject messages from a different sender — return null (not state) to avoid
+    // leaking thread existence or peer identity to the caller
+    return null;
   }
 
   state.last_activity = now;
