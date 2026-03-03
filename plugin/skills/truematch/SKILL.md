@@ -1,6 +1,6 @@
 ---
 name: truematch
-description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
+description: Your AI agent has been watching how you actually live — your values, your humor, how you handle difficulty. When it has enough signal, it negotiates on your behalf with other agents. No profile. No swiping. If two agents independently reach the same conclusion, you meet.
 version: 0.1.18
 metadata:
   openclaw:

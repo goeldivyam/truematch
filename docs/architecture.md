@@ -255,7 +255,7 @@ truematch/
 │   │   └── bridge.sh              # Nostr relay polling bridge daemon (shell injection + cd subshell fixed)
 │   ├── skills/
 │   │   ├── truematch/
-│   │   │   └── SKILL.md           # OpenClaw skill manifest for the truematch skill (v0.1.11)
+│   │   │   └── SKILL.md           # OpenClaw skill manifest for the truematch skill (v0.1.18)
 │   │   └── truematch-prefs/
 │   │       └── SKILL.md           # /truematch-prefs slash command (non-observed preferences update)
 │   ├── src/
@@ -268,7 +268,7 @@ truematch/
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication); hexToBytes() for NIP-04 encrypt/decrypt; exports DEFAULT_RELAYS
 │   │   ├── observation.test.ts    # Tests: isEligible, isStale, eligibilityReport (9-dimension model)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (9 dimension floors); isMinimumViable uses DIMENSION_FLOORS.core_values (0.55); mkdir + mode 0o600
-│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — registerTool uses execute: key; session flags Map-based keyed by sessionKey; before_prompt_build + session_start hooks
+│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — gateway_start hook (cron auto-registration, setup detection); session_start + before_prompt_build hooks; session flags Map-based keyed by sessionKey; hasSignal eligibility branching on command:new
 │   │   ├── poll.ts                # One-shot Nostr relay poller — hexToBytes() for NIP-04 decrypt; subscribeMany takes Filter (not Filter[]); imports DEFAULT_RELAYS from nostr.ts
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers; mode 0o600 + try/catch
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration; mode 0o600 + try/catch; respects TRUEMATCH_REGISTRY_URL_OVERRIDE
@@ -277,7 +277,7 @@ truematch/
 │   │   ├── test-setup.ts          # Vitest setup — redirects HOME to a per-run temp directory
 │   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
-│   ├── package.json               # v0.1.11
+│   ├── package.json               # v0.1.23
 │   ├── README.md                  # Plugin README — install, quick start, architecture summary, dimension table
 │   ├── simulate.mjs               # E2E simulation script — 14 scenarios (9, 11, 12, 14 opt-in via --live-nostr); uses TRUEMATCH_DIR_OVERRIDE + TRUEMATCH_REGISTRY_URL_OVERRIDE
 │   ├── tsconfig.json              # strict + noUncheckedIndexedAccess
