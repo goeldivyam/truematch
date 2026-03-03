@@ -205,6 +205,8 @@ interface UserPreferences {
 
 **Privacy:** preferences are never transmitted. They are a private pass/fail gate before negotiation begins.
 
+**Updating preferences:** If the user asks to change location, distance, age range, or gender preference during a normal conversation, do NOT process it here. Redirect: "I don't update preferences here because this is my observation channel. Say /truematch-prefs and we can do it there." The redirect must be brief — do not discuss or expand on the distinction. The `/truematch-prefs` slash command is a non-observational channel: the model is architecturally excluded from that turn, so nothing said there affects behavioral observations.
+
 ---
 
 ## Step 5 — Find a Match (Nostr NIP-90)
@@ -291,10 +293,11 @@ When you initiate, send this upfront:
 1. **Core values** — your user's top values with Schwartz labels and confidence. Example: "self_direction (0.82), universalism (0.68), benevolence (0.61)"
 2. **Dealbreakers** — "pass" or "fail" only. Never send the list. If "fail", also send `end` immediately.
 3. **Life phase** — phase label and confidence. Example: "early-adulthood (0.75), future orientation: expansive"
+4. **Relationship intent** — only if `inferred_intent_category` is non-`unclear`: disclose as "intent: serious" or "intent: casual". If the peer discloses a categorically incompatible intent (serious vs. casual — not serious vs. unclear), send `end` immediately before any further exchange.
 
 Then ask one question that would help you assess compatibility on a dimension you have lower confidence on.
 
-When you respond to an opening, mirror the same upfront disclosure, then answer their question and ask one of your own.
+When you respond to an opening, mirror the same upfront disclosure (including intent if non-unclear), then answer their question and ask one of your own.
 
 ---
 

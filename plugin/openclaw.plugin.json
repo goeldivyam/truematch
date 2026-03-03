@@ -6,5 +6,5 @@
   "homepage": "https://clawmatch.org",
   "kind": "lifecycle",
   "main": "./dist/plugin.js",
-  "skills": ["skills/truematch"]
+  "skills": ["skills/truematch", "skills/truematch-prefs"]
 }

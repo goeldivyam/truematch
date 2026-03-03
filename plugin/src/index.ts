@@ -3,7 +3,7 @@
  * TrueMatch sidecar CLI
  *
  * Usage:
- *   truematch setup [--contact-type email|discord|telegram] [--contact-value <val>]
+ *   truematch setup [--contact-type email|discord|telegram|whatsapp|imessage] [--contact-value <val>]
  *   truematch status [--relays]
  *   truematch observe --show | --update | --write '<json>'
  *   truematch preferences --show | --set '<json>'
@@ -139,9 +139,13 @@ To complete setup, provide your contact channel:
     return;
   }
 
-  if (!["email", "discord", "telegram"].includes(contactType)) {
+  if (
+    !["email", "discord", "telegram", "whatsapp", "imessage"].includes(
+      contactType,
+    )
+  ) {
     console.error(
-      "Invalid --contact-type. Must be: email, discord, or telegram",
+      "Invalid --contact-type. Must be: email, discord, telegram, whatsapp, or imessage",
     );
     process.exit(1);
   }
@@ -505,6 +509,15 @@ async function cmdMatch(): Promise<void> {
     console.log(`  - Your user's core values (Schwartz labels + confidence)`);
     console.log(`  - Dealbreaker result: pass or fail`);
     console.log(`  - Life phase + confidence`);
+    if (
+      obs.inferred_intent_category &&
+      obs.inferred_intent_category !== "unclear"
+    ) {
+      console.log(
+        `  - Inferred relationship intent: ${obs.inferred_intent_category}` +
+          ` (disclose this; terminate immediately if peer discloses a categorically incompatible intent)`,
+      );
+    }
     console.log(`  - One question for the peer\n`);
     console.log(`Send it with:`);
     console.log(

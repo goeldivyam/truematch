@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -7,11 +7,14 @@ import { homedir } from "node:os";
  * OpenClaw plugin entry point.
  *
  * Exports the plugin object consumed by the OpenClaw runtime.
- * The `register(api)` function wires up lifecycle hooks.
+ * The `register(api)` function wires up lifecycle hooks and tools.
  *
  * Hooks registered:
  *   gateway:startup  — detects first-run and missing preferences at boot
  *   command:new      — on /new: runs setup, preferences, or observation update
+ *
+ * Tools registered:
+ *   truematch_update_prefs — handles /truematch-prefs slash command (non-observational)
  */
 
 const TRUEMATCH_DIR = join(homedir(), ".truematch");
@@ -30,6 +33,11 @@ interface PluginAPI {
     handler: (event: PluginEvent) => void,
     meta?: { name?: string; description?: string },
   ): void;
+  registerTool(tool: {
+    name: string;
+    description: string;
+    handler: (rawArgs: string) => string;
+  }): void;
 }
 
 // Module-scoped flags set at gateway:startup, consumed at first command:new.
@@ -38,6 +46,156 @@ const pluginState = {
   needsSetup: false,
   needsPreferences: false,
 };
+
+interface StoredPreferences {
+  gender_preference?: string[];
+  location?: string;
+  distance_radius_km?: number;
+  age_range?: { min?: number; max?: number };
+}
+
+function loadPrefs(): StoredPreferences {
+  if (!existsSync(PREFERENCES_FILE)) return {};
+  try {
+    return JSON.parse(
+      readFileSync(PREFERENCES_FILE, "utf8"),
+    ) as StoredPreferences;
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(prefs: StoredPreferences): void {
+  writeFileSync(PREFERENCES_FILE, JSON.stringify(prefs, null, 2), "utf8");
+}
+
+function formatPrefs(prefs: StoredPreferences): string {
+  const parts: string[] = [];
+  if (prefs.location) {
+    const radius =
+      prefs.distance_radius_km !== undefined
+        ? ` (within ${prefs.distance_radius_km} km)`
+        : " (anywhere)";
+    parts.push(`location: ${prefs.location}${radius}`);
+  }
+  if (prefs.age_range) {
+    const { min, max } = prefs.age_range;
+    if (min !== undefined && max !== undefined)
+      parts.push(`age: ${min}–${max}`);
+    else if (min !== undefined) parts.push(`age: ${min}+`);
+    else if (max !== undefined) parts.push(`age: up to ${max}`);
+  }
+  if (prefs.gender_preference?.length) {
+    parts.push(`gender: ${prefs.gender_preference.join(" or ")}`);
+  }
+  return parts.length ? parts.join(", ") : "none set";
+}
+
+/**
+ * Parse simple key=value pairs from raw slash-command args.
+ * Supports quoted values: location="New York, NY"
+ */
+function parseArgs(raw: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const re = /(\w+)=(?:"([^"]*)"|(\S+))/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    result[m[1] as string] = (m[2] ?? m[3]) as string;
+  }
+  return result;
+}
+
+/**
+ * Tool handler for /truematch-prefs slash command.
+ *
+ * The model is architecturally excluded from this turn (command-dispatch: tool).
+ * No behavioral observation can occur — the boundary is structural, not in-context.
+ *
+ * Usage:
+ *   /truematch-prefs                          — show current preferences
+ *   /truematch-prefs location="London, UK"    — update location (anywhere = no distance filter)
+ *   /truematch-prefs distance=city            — within ~50 km (city | travel | anywhere)
+ *   /truematch-prefs age_min=25 age_max=35    — age range (omit either for open-ended)
+ *   /truematch-prefs gender=anyone            — any; or comma-separated: man,woman,nonbinary
+ */
+function handleUpdatePrefs(rawArgs: string): string {
+  const prefs = loadPrefs();
+  const trimmed = rawArgs.trim();
+
+  if (!trimmed) {
+    return (
+      `Preferences mode. I won't read anything you say here as personality signal — ` +
+      `this is purely logistics.\n\n` +
+      `Current preferences: ${formatPrefs(prefs)}\n\n` +
+      `Update with: /truematch-prefs <field>=<value>\n` +
+      `  location="City, Country"    where you're based\n` +
+      `  distance=city               city (~50 km) | travel (~300 km) | anywhere\n` +
+      `  age_min=25 age_max=35       age range (either is optional)\n` +
+      `  gender=anyone               or: man,woman,nonbinary (comma-separated)`
+    );
+  }
+
+  const args = parseArgs(trimmed);
+  let changed = false;
+
+  if (args["location"] !== undefined) {
+    prefs.location = args["location"];
+    changed = true;
+  }
+
+  if (args["distance"] !== undefined) {
+    const d = args["distance"].toLowerCase();
+    if (d === "city") {
+      prefs.distance_radius_km = 50;
+    } else if (d === "travel") {
+      prefs.distance_radius_km = 300;
+    } else if (d === "anywhere") {
+      delete prefs.distance_radius_km;
+    } else {
+      return `Unknown distance value "${args["distance"]}". Use: city, travel, or anywhere.`;
+    }
+    changed = true;
+  }
+
+  if (args["age_min"] !== undefined || args["age_max"] !== undefined) {
+    const current = prefs.age_range ?? {};
+    if (args["age_min"] !== undefined) {
+      const n = parseInt(args["age_min"], 10);
+      if (isNaN(n)) return `Invalid age_min value: "${args["age_min"]}"`;
+      current.min = n;
+    }
+    if (args["age_max"] !== undefined) {
+      const n = parseInt(args["age_max"], 10);
+      if (isNaN(n)) return `Invalid age_max value: "${args["age_max"]}"`;
+      current.max = n;
+    }
+    prefs.age_range = current;
+    changed = true;
+  }
+
+  if (args["gender"] !== undefined) {
+    const g = args["gender"].toLowerCase();
+    prefs.gender_preference =
+      g === "anyone" || g === "any" || g === ""
+        ? []
+        : g
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    changed = true;
+  }
+
+  if (!changed) {
+    return `No recognized fields in args. Use: location, distance, age_min, age_max, gender.`;
+  }
+
+  savePrefs(prefs);
+
+  return (
+    `Updated. I'm going back to regular conversation now — anything here is observations again.\n\n` +
+    `Current preferences: ${formatPrefs(prefs)}`
+  );
+}
 
 export default {
   id: "truematch",
@@ -48,7 +206,19 @@ export default {
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
-    // gateway:startup fires once per gateway process, after channels and hooks load.
+    // ── Tool: /truematch-prefs ─────────────────────────────────────────────────
+    // Registered with command-dispatch: tool in skills/truematch-prefs/SKILL.md.
+    // The model is architecturally excluded from this turn — no observation possible.
+    api.registerTool({
+      name: "truematch_update_prefs",
+      description:
+        "Update TrueMatch logistics preferences (location, distance, age range, gender). " +
+        "The model is excluded from this turn — no behavioral observation occurs.",
+      handler: handleUpdatePrefs,
+    });
+
+    // ── Hook: gateway:startup ──────────────────────────────────────────────────
+    // Fires once per gateway process, after channels and hooks load.
     // Use it to detect setup state so command:new can prompt appropriately.
     api.registerHook(
       "gateway:startup",
@@ -66,7 +236,8 @@ export default {
       },
     );
 
-    // command:new fires on every /new invocation.
+    // ── Hook: command:new ──────────────────────────────────────────────────────
+    // Fires on every /new invocation.
     // Three branches: first-time setup, missing preferences, or normal observation update.
     api.registerHook(
       "command:new",
@@ -104,7 +275,10 @@ export default {
               `3. Any age range preference? (both optional, "no preference" is a complete answer)\n` +
               `4. Gender preference? ("open to anyone" is a complete answer — record as [])\n\n` +
               `Accept open/no-preference answers without pushback, then save:\n` +
-              `  node "$HOME/.truematch/truematch.js" preferences --set '<json>'`,
+              `  node "$HOME/.truematch/truematch.js" preferences --set '<json>'\n\n` +
+              `If user tries to update preferences in main conversation later, redirect them:\n` +
+              `"I don't update preferences here because this is my observation channel. ` +
+              `Say /truematch-prefs and we can do it there."`,
           );
           return;
         }
