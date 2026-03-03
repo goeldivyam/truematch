@@ -29,8 +29,10 @@ describe("encrypt / decrypt", () => {
     const { encrypt, decrypt } = await getCrypto();
     const encoded = encrypt("my-discord-handle");
     const parts = encoded.split(":");
-    // flip last byte of ciphertext
-    const tampered = parts[2]!.slice(0, -2) + "ff";
+    // flip last byte of ciphertext by XOR-ing with 0x01 — guarantees the byte changes
+    const lastByte = parseInt(parts[2]!.slice(-2), 16);
+    const flipped = (lastByte ^ 0x01).toString(16).padStart(2, "0");
+    const tampered = parts[2]!.slice(0, -2) + flipped;
     expect(() => decrypt(`${parts[0]}:${parts[1]}:${tampered}`)).toThrow();
   });
 });
