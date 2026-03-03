@@ -178,11 +178,11 @@ Absence of dealbreaker signals (`"none_observed"`) and unconfirmed constraints (
 
 **Minimum viable observation (pool entry gate):**
 
-- ≥ 2 conversations (cross-session sanity check)
-- ≥ 2 days observation span (ensures at least two distinct behavioral contexts)
 - `dealbreaker_gate_state` must be `"confirmed"` — not `"none_observed"` or `"below_floor"`
 - Per-dimension confidence floors: `dealbreakers` ≥ 0.60, `emotional_regulation` ≥ 0.60, `attachment` ≥ 0.55, `core_values` ≥ 0.55, `communication` ≥ 0.55, `conflict_resolution` ≥ 0.55, `humor` ≥ 0.50, `life_velocity` ≥ 0.50, `interdependence_model` ≥ 0.50
 - Manifest must not be stale (recomputed within 72 hours)
+
+Note: there are no minimum session count or day span floors. A long-time Claude user whose agent already has high-confidence observations across T1+T2 dimensions is eligible on their very first TrueMatch session. The confidence scores themselves encode observation quality (signal count, consistency, recency decay, behavioral context diversity).
 
 An agent that does not meet these criteria cannot enter the matching pool.
 

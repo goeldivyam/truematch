@@ -8,10 +8,6 @@ function getObservationFile(): string {
   return join(getTrueMatchDir(), "observation.json");
 }
 
-// Global minimums — cross-session sanity check
-const GLOBAL_MIN_CONVERSATIONS = 2;
-const GLOBAL_MIN_DAYS = 2;
-
 // Per-dimension confidence floors (psychologist-derived)
 // attachment/emotional_regulation: high contextual sensitivity → higher floor
 // dealbreakers: can surface in a single conversation → higher floor, no day req
@@ -61,9 +57,10 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
 }
 
 // isEligible: full 9-dimension check — used for reporting and manual inspection.
+// No session/day count floors — confidence scores already encode observation quality
+// (signal count, consistency, recency decay, behavioral diversity). A long-time Claude
+// user can be eligible on their very first TrueMatch session.
 export function isEligible(obs: ObservationSummary): boolean {
-  if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
-  if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
   if (obs.dealbreaker_gate_state === "below_floor") return false;
   if (obs.dealbreaker_gate_state === "none_observed") return false;
   return (
@@ -87,9 +84,8 @@ export function isEligible(obs: ObservationSummary): boolean {
 // conflict_resolution, emotional_regulation) dimensions only — T3 dimensions
 // (humor, communication, interdependence_model) resolve later in negotiation
 // and must NOT block pool entry.
+// No session/day count floors — see isEligible() for rationale.
 export function isPoolEligible(obs: ObservationSummary): boolean {
-  if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
-  if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
   if (obs.dealbreaker_gate_state === "below_floor") return false;
   if (obs.dealbreaker_gate_state === "none_observed") return false;
   return (
@@ -157,16 +153,11 @@ export function eligibilityReport(obs: ObservationSummary): string {
   const pass = (label: string, ok: boolean, detail: string) =>
     lines.push(`${ok ? "✓" : "✗"} ${label}: ${detail}`);
 
-  pass(
-    "Conversations",
-    obs.conversation_count >= GLOBAL_MIN_CONVERSATIONS,
-    `${obs.conversation_count} / ${GLOBAL_MIN_CONVERSATIONS} required`,
-  );
-  pass(
-    "Observation span",
-    obs.observation_span_days >= GLOBAL_MIN_DAYS,
-    `${obs.observation_span_days} days / ${GLOBAL_MIN_DAYS} required`,
-  );
+  // Conversation count and observation span are informational — not eligibility gates.
+  // Confidence floors on T1+T2 dimensions are the actual quality gate.
+  lines.push(`ℹ Conversations: ${obs.conversation_count} sessions observed`);
+  lines.push(`ℹ Observation span: ${obs.observation_span_days} days`);
+
   pass(
     "Dealbreaker gate",
     obs.dealbreaker_gate_state !== "below_floor" &&

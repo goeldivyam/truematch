@@ -59,16 +59,14 @@ describe("isEligible", () => {
     expect(isEligible(makeEligibleObs())).toBe(true);
   });
 
-  it("fails when conversation_count < 2", () => {
-    expect(isEligible({ ...makeEligibleObs(), conversation_count: 1 })).toBe(
-      false,
-    );
-  });
-
-  it("fails when observation_span_days < 2", () => {
-    expect(isEligible({ ...makeEligibleObs(), observation_span_days: 1 })).toBe(
-      false,
-    );
+  it("returns true when conversation_count is 0 but all dimension floors are met (long-time Claude user, first TrueMatch session)", () => {
+    expect(
+      isEligible({
+        ...makeEligibleObs(),
+        conversation_count: 0,
+        observation_span_days: 0,
+      }),
+    ).toBe(true);
   });
 
   it("fails when dealbreaker_gate_state is none_observed", () => {
@@ -196,18 +194,20 @@ describe("isStale", () => {
 describe("eligibilityReport", () => {
   it("shows ✓ for all passing dimensions on a fully eligible observation", () => {
     const report = eligibilityReport(makeEligibleObs());
-    expect(report).toContain("✓ Conversations");
-    expect(report).toContain("✓ Observation span");
+    // Conversations and span are informational — shown with ℹ, not ✓/✗
+    expect(report).toContain("ℹ Conversations");
+    expect(report).toContain("ℹ Observation span");
     expect(report).toContain("✓ Dealbreaker gate");
     expect(report).toContain("✓ Attachment");
   });
 
-  it("shows ✗ for failing dimensions", () => {
+  it("shows ✗ for failing confidence dimensions (conversation count is informational only)", () => {
     const obs = makeEligibleObs();
-    obs.conversation_count = 1;
+    obs.conversation_count = 0; // does not gate eligibility
     obs.attachment.confidence = 0;
     const report = eligibilityReport(obs);
-    expect(report).toContain("✗ Conversations");
+    // Conversations shown as info regardless of count
+    expect(report).toContain("ℹ Conversations: 0 sessions observed");
     expect(report).toContain("✗ Attachment");
   });
 

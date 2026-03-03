@@ -231,7 +231,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.11",
+  version: "0.1.12",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
