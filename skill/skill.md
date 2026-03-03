@@ -350,6 +350,8 @@ Immediately before sending `match_propose`, run this mandatory check:
 
 If your counter-argument surfaces any dimension where compatibility appears below 0.55, **do not propose** — send `end` instead.
 
+**Also check Layer 0 preferences before proposing.** Age range and gender preference are private and never transmitted to the registry — they are enforced here. If the peer's inferred age or gender falls outside your user's stated preference, send `end` instead of `match_propose`. Do not disclose the reason to the peer.
+
 This check must be honest. The goal is a good match, not a confirmed match.
 
 ---

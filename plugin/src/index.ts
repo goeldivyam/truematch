@@ -512,6 +512,9 @@ async function cmdMatch(): Promise<void> {
     }
 
     const agents = await listAgents(proximity);
+    // Location/distance filtered server-side. Age range and gender preference
+    // are private (never in the registry) — Claude enforces them before
+    // sending match_propose (see skill.md Step 4.5).
     const candidates = agents.filter((a) => a.pubkey !== identity.npub);
 
     if (candidates.length === 0) {

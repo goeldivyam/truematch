@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 const TRUEMATCH_DIR = join(homedir(), ".truematch");
 const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
 const PREFERENCES_FILE = join(TRUEMATCH_DIR, "preferences.json");
+const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 
 interface PluginEvent {
   type: string;
@@ -45,6 +46,7 @@ interface PluginAPI {
 const pluginState = {
   needsSetup: false,
   needsPreferences: false,
+  needsBootstrap: false,
 };
 
 interface StoredPreferences {
@@ -227,6 +229,10 @@ export default {
           pluginState.needsSetup = true;
         } else if (!existsSync(PREFERENCES_FILE)) {
           pluginState.needsPreferences = true;
+        } else if (!existsSync(OBSERVATION_FILE)) {
+          // Identity and preferences exist but no observations yet.
+          // Trigger the cold-start seed conversation on the next /new.
+          pluginState.needsBootstrap = true;
         }
       },
       {
@@ -279,6 +285,35 @@ export default {
               `If user tries to update preferences in main conversation later, redirect them:\n` +
               `"I don't update preferences here because this is my observation channel. ` +
               `Say /truematch-prefs and we can do it there."`,
+          );
+          return;
+        }
+
+        if (pluginState.needsBootstrap) {
+          pluginState.needsBootstrap = false;
+          event.messages.push(
+            `[TrueMatch] Cold-start seed conversation — run exactly once before entering ` +
+              `regular observation mode. Conduct the following:\n\n` +
+              `Say: "Before we get into regular conversation, I want to understand who you ` +
+              `actually are — not what you'd put on a profile. I'm going to ask you a few ` +
+              `open questions. There are no right answers and I'm not scoring anything. ` +
+              `Just be honest."\n\n` +
+              `Ask 4–6 of these prompts (not all at once — let answers breathe):\n` +
+              `- "Tell me about a time a friendship or relationship surprised you — ` +
+              `in a good way or a bad one."\n` +
+              `- "What's something you changed your mind about in the last few years?"\n` +
+              `- "Walk me through a typical Saturday — not ideal, just real."\n` +
+              `- "What have you and a close friend disagreed about recently?"\n` +
+              `- "What's a decision you made that you're still not sure about?"\n` +
+              `- "What does a good day actually look like for you right now?"\n\n` +
+              `Rules:\n` +
+              `- Do NOT ask trait-labelling questions ("Are you introverted or extroverted?")\n` +
+              `- Do NOT ask preference lists ("What do you value most in a partner?")\n` +
+              `- Do NOT ask hypotheticals ("What would your ideal relationship look like?")\n` +
+              `- Do NOT reference TrueMatch or matching during elicitation\n\n` +
+              `When finished (6–10 turns total), update the observation summary:\n` +
+              `  node "$HOME/.truematch/truematch.js" observe --update\n` +
+              `Note: seed observations carry 0.6x confidence weight vs spontaneous observations.`,
           );
           return;
         }
