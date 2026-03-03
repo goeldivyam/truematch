@@ -52,7 +52,8 @@ export interface UserPreferences {
 // ── Identity ──────────────────────────────────────────────────────────────────
 
 export interface TrueMatchIdentity {
-  nsec: string; // hex-encoded private key (keep secret)
+  /** Raw hex-encoded private key (64 hex chars, NOT bech32 "nsec1..."). Keep secret. */
+  nsec: string;
   npub: string; // hex-encoded x-only public key
   created_at: string; // ISO 8601
 }
@@ -99,8 +100,9 @@ export interface NegotiationMessage {
 export interface NegotiationState {
   thread_id: string;
   peer_pubkey: string;
-  round_count: number;
+  round_count: number; // counts only our outgoing messages
   initiated_by_us: boolean;
+  we_proposed: boolean; // true once we have sent a match_propose
   started_at: string;
   last_activity: string;
   status: "in_progress" | "matched" | "declined" | "expired";

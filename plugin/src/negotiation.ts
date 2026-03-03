@@ -72,10 +72,11 @@ export async function expireStaleThreads(
       Date.now() - new Date(thread.last_activity).getTime() >
       THREAD_EXPIRY_MS
     ) {
-      await sendEnd(nsec, npub, thread.peer_pubkey, thread.thread_id, relays);
+      // Save before sending so a relay failure doesn't cause duplicate end messages on next cycle
       thread.status = "expired";
-      thread.last_activity = new Date().toISOString(); // prevent duplicate sends on next cycle
+      thread.last_activity = new Date().toISOString();
       await saveThread(thread);
+      await sendEnd(nsec, thread.peer_pubkey, thread.thread_id, relays);
     }
   }
 }
@@ -93,6 +94,7 @@ export async function initiateNegotiation(
     peer_pubkey: peerNpub,
     round_count: 0,
     initiated_by_us: true,
+    we_proposed: false,
     started_at: now,
     last_activity: now,
     status: "in_progress",
@@ -121,6 +123,7 @@ export async function receiveMessage(
       peer_pubkey: peerNpub,
       round_count: 0,
       initiated_by_us: false,
+      we_proposed: false,
       started_at: now,
       last_activity: now,
       status: "in_progress",
@@ -129,7 +132,7 @@ export async function receiveMessage(
   }
 
   state.last_activity = now;
-  state.round_count += 1;
+  // round_count tracks only our outgoing messages — do not increment on receive
 
   const incoming: NegotiationMessage = {
     role: "peer",
@@ -148,10 +151,7 @@ export async function receiveMessage(
       // content was plain text
     }
     // Double-lock: if we already sent a proposal, both sides have now proposed → match confirmed
-    const weAlreadyProposed = state.messages.some(
-      (m) => m.role === "us" && m.content.startsWith("[match_propose]"),
-    );
-    if (weAlreadyProposed) {
+    if (state.we_proposed) {
       state.status = "matched";
     }
   }
@@ -223,13 +223,10 @@ export async function proposeMatch(
 
   await publishMessage(nsec, state.peer_pubkey, msg, relays);
 
-  state.messages.push({
-    role: "us",
-    content: `[match_propose] ${content}`,
-    timestamp: now,
-  });
+  state.messages.push({ role: "us", content, timestamp: now });
   state.round_count += 1;
   state.last_activity = now;
+  state.we_proposed = true;
 
   // If peer already proposed, the match is confirmed (double-lock cleared)
   if (state.match_narrative !== undefined) {
@@ -250,21 +247,17 @@ export async function declineMatch(
   const state = await loadThread(thread_id);
   if (!state) throw new Error(`Thread ${thread_id} not found`);
 
-  await sendEnd(nsec, npub, state.peer_pubkey, thread_id, relays);
+  await sendEnd(nsec, state.peer_pubkey, thread_id, relays);
 
   state.status = "declined";
   state.last_activity = new Date().toISOString();
   await saveThread(state);
 }
 
-// ── Scoring helpers ───────────────────────────────────────────────────────────
-
-// Cap confidence for dimensions observed in only one behavioral context
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 async function sendEnd(
   nsec: string,
-  npub: string,
   peerNpub: string,
   thread_id: string,
   relays: string[],

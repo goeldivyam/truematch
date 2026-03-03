@@ -55,7 +55,6 @@ import {
 import type {
   ContactType,
   ObservationSummary,
-  TrueMatchMessage,
   MatchNarrative,
   UserPreferences,
 } from "./types.js";
@@ -525,12 +524,11 @@ async function cmdMatch(): Promise<void> {
       identity.nsec,
       identity.npub,
       async (from, message) => {
-        const msg = message as TrueMatchMessage;
         const updated = await receiveMessage(
-          msg.thread_id,
+          message.thread_id,
           from,
-          msg.content,
-          msg.type,
+          message.content,
+          message.type,
         );
 
         if (updated.status === "matched") {
@@ -549,12 +547,12 @@ async function cmdMatch(): Promise<void> {
         }
 
         console.log(`\n[TrueMatch] Message from peer ${from.slice(0, 12)}:`);
-        console.log(`Thread: ${msg.thread_id}`);
+        console.log(`Thread: ${message.thread_id}`);
         console.log(`Round: ${updated.round_count} / 10\n`);
-        console.log(msg.content);
+        console.log(message.content);
         console.log(
           "\nRespond with: truematch match --send '<reply>' --thread " +
-            msg.thread_id,
+            message.thread_id,
         );
       },
     );

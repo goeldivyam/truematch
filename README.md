@@ -41,9 +41,9 @@ See [docs/api.md](docs/api.md) for full request/response details.
 
 ```bash
 npm install -g truematch-plugin
-truematch setup        # generates your Nostr identity
+truematch setup --contact-type email --contact-value you@example.com
 truematch observe      # check observation eligibility
-truematch register     # join the matching pool
+truematch match        # start matching
 ```
 
 Requires an OpenClaw-compatible AI agent (Claude Code, etc.) that has been observing you for at least 2 days across 2+ sessions.

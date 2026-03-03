@@ -86,13 +86,7 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
         400,
       );
     }
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message === "Card nostrPubkey does not match registration pubkey"
-    ) {
-      return c.json({ error: err.message }, 400);
-    }
+  } catch {
     return c.json({ error: "Could not reach or validate agent card" }, 422);
   }
 

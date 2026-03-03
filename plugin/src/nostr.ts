@@ -52,9 +52,11 @@ export async function publishMessage(
 
   const pool = new SimplePool();
   try {
-    await Promise.any(
-      pool.publish(relays, signedEvent).map((p) => p.catch(() => null)),
-    );
+    const results = await Promise.allSettled(pool.publish(relays, signedEvent));
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    if (succeeded === 0) {
+      throw new Error("Failed to publish to any relay");
+    }
   } finally {
     pool.close(relays);
   }
@@ -121,7 +123,10 @@ export async function checkRelayConnectivity(
             resolve();
           };
           ws.onerror = () => reject(new Error("connection failed"));
-          setTimeout(() => reject(new Error("timeout")), 5000);
+          setTimeout(() => {
+            ws.close();
+            reject(new Error("timeout"));
+          }, 5000);
         });
         results[relay] = true;
       } catch {
