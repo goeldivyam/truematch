@@ -164,6 +164,9 @@ export async function receiveMessage(
     // Reject messages from a different sender — return null (not state) to avoid
     // leaking thread existence or peer identity to the caller
     return null;
+  } else if (state.status !== "in_progress") {
+    // Reject messages on closed threads (declined, matched, expired)
+    return null;
   }
 
   state.last_activity = now;

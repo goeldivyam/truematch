@@ -15,16 +15,16 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { SimplePool, verifyEvent, type Event, type Filter } from "nostr-tools";
 import { nip04 } from "nostr-tools";
+import { getTrueMatchDir } from "./identity.js";
 import type {
   TrueMatchMessage,
   TrueMatchIdentity,
   NegotiationState,
 } from "./types.js";
 
-const TRUEMATCH_DIR = join(homedir(), ".truematch");
+const TRUEMATCH_DIR = getTrueMatchDir();
 const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
 const POLL_STATE_FILE = join(TRUEMATCH_DIR, "poll-state.json");
 const THREADS_DIR = join(TRUEMATCH_DIR, "threads");

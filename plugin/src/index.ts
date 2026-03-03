@@ -4,10 +4,12 @@
  *
  * Usage:
  *   truematch setup [--contact-type email|discord|telegram|whatsapp|imessage] [--contact-value <val>]
+ *   truematch heartbeat
  *   truematch status [--relays]
  *   truematch observe --show | --update | --write '<json>'
  *   truematch preferences --show | --set '<json>'
  *   truematch match --start | --status [--thread <id>] | --messages --thread <id>
+ *                   | --receive '<content>' --thread <id> --peer <pubkey> [--type <type>]
  *                   | --send '<msg>' --thread <id>
  *                   | --propose --thread <id> --write '<narrative-json>'
  *                   | --decline --thread <id>
@@ -81,6 +83,9 @@ const { values: args, positionals } = parseArgs({
     reset: { type: "boolean" },
     thread: { type: "string" },
     send: { type: "string" },
+    receive: { type: "string" },
+    peer: { type: "string" },
+    type: { type: "string" },
     propose: { type: "boolean" },
     decline: { type: "boolean" },
     messages: { type: "boolean" },
@@ -104,6 +109,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "setup":
       await cmdSetup();
+      break;
+    case "heartbeat":
+      await cmdHeartbeat();
       break;
     case "status":
       await cmdStatus();
@@ -189,6 +197,33 @@ To complete setup, provide your contact channel:
   contact: ${reg.contact_channel.type} / ${reg.contact_channel.value}${reg.location_label ? `\n  location: ${reg.location_label} (${reg.location_resolution})` : ""}
 
 Next: run 'truematch observe --update' after a few conversations to build your personality model.`);
+}
+
+// ── heartbeat ─────────────────────────────────────────────────────────────────
+
+// Re-registers with stored credentials to refresh lastSeen in the registry.
+// Called by the auto-poll cron so the agent stays visible in the matching pool
+// without the user having to run setup again.
+async function cmdHeartbeat(): Promise<void> {
+  const identity = await loadIdentity();
+  if (!identity) {
+    console.error("Not set up. Run: truematch setup");
+    process.exit(1);
+  }
+  const reg = await loadRegistration();
+  if (!reg) {
+    console.error("Not registered. Run: truematch setup");
+    process.exit(1);
+  }
+  const prefs = await loadPreferences();
+  await register(
+    identity,
+    reg.card_url,
+    reg.contact_channel,
+    prefs.location,
+    prefs.distance_radius_km,
+  );
+  console.log(`Heartbeat sent. pubkey: ${identity.npub.slice(0, 16)}...`);
 }
 
 // ── status ────────────────────────────────────────────────────────────────────
@@ -420,6 +455,63 @@ async function cmdMatch(): Promise<void> {
     return;
   }
 
+  // --receive '<content>' --thread <id> --peer <pubkey> [--type negotiation|match_propose|end]
+  // Registers an inbound message and saves the thread state on the receiving side.
+  // Use this when poll.js outputs a message that has no local thread yet.
+  if (args["receive"] !== undefined) {
+    if (!identity) {
+      console.error("Not set up. Run: truematch setup");
+      process.exit(1);
+    }
+    const content = args["receive"] as string;
+    const thread_id = args["thread"] as string | undefined;
+    const peerNpub = args["peer"] as string | undefined;
+    if (!thread_id || !peerNpub) {
+      console.error(
+        "Usage: truematch match --receive '<content>' --thread <id> --peer <pubkey>",
+      );
+      process.exit(1);
+    }
+    const rawType = args["type"] as string | undefined;
+    if (
+      rawType !== undefined &&
+      rawType !== "negotiation" &&
+      rawType !== "match_propose" &&
+      rawType !== "end"
+    ) {
+      console.error(
+        `Invalid --type "${rawType}". Must be: negotiation, match_propose, or end`,
+      );
+      process.exit(1);
+    }
+    const msgType = rawType ?? "negotiation";
+    const state = await receiveMessage(thread_id, peerNpub, content, msgType);
+    if (!state) {
+      console.error(
+        `Could not register inbound message (thread rejected — invalid id, closed thread, or DoS cap reached)`,
+      );
+      process.exit(1);
+    }
+    console.log(
+      `Message registered. Thread ${thread_id.slice(0, 8)}... — round ${state.round_count} — status: ${state.status}`,
+    );
+    if (state.status === "matched") {
+      if (state.match_narrative) {
+        try {
+          writePendingNotificationIfMatched(
+            state.thread_id,
+            state.peer_pubkey,
+            state.match_narrative,
+          );
+        } catch {
+          // Notification write failed — match is still confirmed
+        }
+      }
+      console.log("MATCH CONFIRMED (double-lock cleared).");
+    }
+    return;
+  }
+
   // --send '<msg>' --thread <id>
   if (args["send"]) {
     if (!identity) {
@@ -558,17 +650,33 @@ async function cmdMatch(): Promise<void> {
     const activeThreads = await listActiveThreads();
     const activePeers = new Set(activeThreads.map((t) => t.peer_pubkey));
 
+    // Only consider agents seen within the last 2 hours — prevents matching
+    // against ghost entries whose private keys no longer exist.
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
     const candidates = agents.filter(
-      (a) => a.pubkey !== identity.npub && !activePeers.has(a.pubkey),
+      (a) =>
+        a.pubkey !== identity.npub &&
+        !activePeers.has(a.pubkey) &&
+        new Date(a.lastSeen).getTime() > twoHoursAgo,
     );
 
     if (candidates.length === 0) {
-      if (agents.filter((a) => a.pubkey !== identity.npub).length === 0) {
+      const othersInPool = agents.filter((a) => a.pubkey !== identity.npub);
+      if (othersInPool.length === 0) {
         console.log("No other agents in the pool yet. Check back later.");
       } else {
-        console.log(
-          "Already negotiating with all available agents. Check back later.",
+        const recentOthers = othersInPool.filter(
+          (a) => new Date(a.lastSeen).getTime() > twoHoursAgo,
         );
+        if (recentOthers.length === 0) {
+          console.log(
+            "No recently-active agents available (all registry entries are older than 2 hours). Check back later.",
+          );
+        } else {
+          console.log(
+            "Already negotiating with all available agents. Check back later.",
+          );
+        }
       }
       return;
     }
@@ -661,13 +769,15 @@ async function cmdMatch(): Promise<void> {
   }
 
   console.log(`Usage:
-  truematch match --start                           Start a new negotiation
-  truematch match --status [--thread <id>]          Show negotiation status
-  truematch match --messages --thread <id>          Show conversation history
-  truematch match --send '<msg>' --thread <id>      Send a message
+  truematch match --start                                         Start a new negotiation
+  truematch match --status [--thread <id>]                       Show negotiation status
+  truematch match --messages --thread <id>                       Show conversation history
+  truematch match --receive '<content>' --thread <id> --peer <pubkey>
+                                                                  Register an inbound message (from poll.js output)
+  truematch match --send '<msg>' --thread <id>                   Send a message
   truematch match --propose --thread <id> --write '<narrative-json>'
-  truematch match --decline --thread <id>           End the negotiation
-  truematch match --reset --thread <id>             Force-reset thread state`);
+  truematch match --decline --thread <id>                        End the negotiation
+  truematch match --reset --thread <id>                          Force-reset thread state`);
 }
 
 // ── handoff ───────────────────────────────────────────────────────────────────
