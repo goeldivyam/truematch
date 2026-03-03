@@ -9,7 +9,9 @@ import type {
   NegotiationMessage,
   TrueMatchMessage,
   MatchNarrative,
+  ContactChannel,
 } from "./types.js";
+import { VALID_CONTACT_TYPES } from "./types.js";
 
 // Re-read each call so that TRUEMATCH_DIR_OVERRIDE changes take effect (used in simulation).
 function getThreadsDir(): string {
@@ -197,8 +199,47 @@ export async function receiveMessage(
   } else if (type === "match_propose") {
     state.peer_proposed = true;
     try {
-      const narrative = JSON.parse(content) as MatchNarrative;
-      state.match_narrative = narrative;
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      // New format: { narrative: MatchNarrative, contact: ContactChannel }
+      if (parsed["narrative"] && typeof parsed["narrative"] === "object") {
+        const n = parsed["narrative"] as Record<string, unknown>;
+        // Validate narrative has minimum required structure before trusting it.
+        // Without this, a malformed narrative reaches buildMatchNotificationContext
+        // which calls .map() on narrative.strengths and throws if undefined.
+        if (
+          typeof n["headline"] === "string" &&
+          Array.isArray(n["strengths"]) &&
+          Array.isArray(n["watch_points"]) &&
+          typeof n["confidence_summary"] === "string"
+        ) {
+          state.match_narrative = n as unknown as MatchNarrative;
+        }
+        const c = parsed["contact"];
+        if (
+          c &&
+          typeof c === "object" &&
+          "type" in (c as object) &&
+          "value" in (c as object) &&
+          typeof (c as Record<string, unknown>)["type"] === "string" &&
+          VALID_CONTACT_TYPES.has(
+            (c as Record<string, unknown>)["type"] as string,
+          ) &&
+          typeof (c as Record<string, unknown>)["value"] === "string" &&
+          ((c as Record<string, unknown>)["value"] as string).length <= 512
+        ) {
+          state.peer_contact = c as ContactChannel;
+        }
+      } else {
+        // Legacy format: plain MatchNarrative JSON (no contact) — validate before trusting
+        if (
+          typeof parsed["headline"] === "string" &&
+          Array.isArray(parsed["strengths"]) &&
+          Array.isArray(parsed["watch_points"]) &&
+          typeof parsed["confidence_summary"] === "string"
+        ) {
+          state.match_narrative = parsed as unknown as MatchNarrative;
+        }
+      }
     } catch {
       // content was plain text; peer_proposed is still recorded
     }
@@ -256,6 +297,7 @@ export async function proposeMatch(
   thread_id: string,
   narrative: MatchNarrative,
   relays: string[],
+  myContact?: ContactChannel,
 ): Promise<NegotiationState> {
   const state = await loadThread(thread_id);
   if (!state) throw new Error(`Thread ${thread_id} not found`);
@@ -268,7 +310,11 @@ export async function proposeMatch(
     throw new Error(`Already proposed on thread ${thread_id}`);
 
   const now = new Date().toISOString();
-  const content = JSON.stringify(narrative);
+  // Include our contact in the proposal so the peer can store it at match-confirmation time.
+  // Transmitted encrypted via NIP-04 — only the peer can read it.
+  const content = JSON.stringify(
+    myContact ? { narrative, contact: myContact } : narrative,
+  );
 
   const msg: TrueMatchMessage = {
     truematch: "2.0",
@@ -285,7 +331,10 @@ export async function proposeMatch(
   state.last_activity = now;
   state.we_proposed = true;
 
-  // If peer already proposed, the match is confirmed (double-lock cleared)
+  // If peer already proposed, the match is confirmed (double-lock cleared).
+  // Note: state.peer_contact (set by receiveMessage when peer's proposal arrived)
+  // is present here because loadThread reads the full persisted state. Do not
+  // reconstruct state from scratch in this function — that would silently drop it.
   if (state.peer_proposed) {
     state.status = "matched";
   }

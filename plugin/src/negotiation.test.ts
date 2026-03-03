@@ -136,7 +136,7 @@ describe("receiveMessage", () => {
     expect(result?.status).toBe("declined");
   });
 
-  it("sets peer_proposed=true when type is 'match_propose'", async () => {
+  it("sets peer_proposed=true when type is 'match_propose' (legacy format)", async () => {
     const thread = await initiateNegotiation(PEER_NPUB);
     const result = await receiveMessage(
       thread.thread_id,
@@ -145,7 +145,69 @@ describe("receiveMessage", () => {
       "match_propose",
     );
     expect(result?.peer_proposed).toBe(true);
+    expect(result?.match_narrative?.headline).toBe(NARRATIVE.headline);
     expect(result?.status).toBe("in_progress"); // double-lock not cleared yet
+  });
+
+  it("parses peer_contact from new match_propose format", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    const content = JSON.stringify({
+      narrative: NARRATIVE,
+      contact: { type: "email", value: "alice@example.com" },
+    });
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      content,
+      "match_propose",
+    );
+    expect(result?.match_narrative?.headline).toBe(NARRATIVE.headline);
+    expect(result?.peer_contact?.type).toBe("email");
+    expect(result?.peer_contact?.value).toBe("alice@example.com");
+  });
+
+  it("ignores peer_contact with invalid type", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    const content = JSON.stringify({
+      narrative: NARRATIVE,
+      contact: { type: "javascript:", value: "alert(1)" },
+    });
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      content,
+      "match_propose",
+    );
+    expect(result?.match_narrative?.headline).toBe(NARRATIVE.headline);
+    expect(result?.peer_contact).toBeUndefined();
+  });
+
+  it("does not set match_narrative for malformed legacy payload (missing required fields)", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    const content = JSON.stringify({ headline: "only headline, no arrays" });
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      content,
+      "match_propose",
+    );
+    expect(result?.peer_proposed).toBe(true);
+    expect(result?.match_narrative).toBeUndefined();
+  });
+
+  it("ignores peer_contact with value exceeding 512 chars", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    const content = JSON.stringify({
+      narrative: NARRATIVE,
+      contact: { type: "email", value: "a".repeat(513) },
+    });
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      content,
+      "match_propose",
+    );
+    expect(result?.peer_contact).toBeUndefined();
   });
 
   it("sets status=matched (double-lock) when both sides have proposed", async () => {
@@ -231,6 +293,48 @@ describe("proposeMatch", () => {
       RELAYS,
     );
     expect(result.status).toBe("matched");
+  });
+
+  it("carries peer_contact through double-lock when peer proposed first with contact", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    // Peer proposes first with new format including contact
+    await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      JSON.stringify({
+        narrative: NARRATIVE,
+        contact: { type: "telegram", value: "@alice" },
+      }),
+      "match_propose",
+    );
+    // We propose second — double-lock clears, peer_contact should be on returned state
+    const result = await proposeMatch(
+      NSEC,
+      thread.thread_id,
+      NARRATIVE,
+      RELAYS,
+    );
+    expect(result.status).toBe("matched");
+    expect(result.peer_contact?.type).toBe("telegram");
+    expect(result.peer_contact?.value).toBe("@alice");
+  });
+
+  it("includes contact in message content when myContact is provided", async () => {
+    const { publishMessage } = await import("./nostr.js");
+    const thread = await initiateNegotiation(PEER_NPUB);
+    await proposeMatch(NSEC, thread.thread_id, NARRATIVE, RELAYS, {
+      type: "email",
+      value: "me@example.com",
+    });
+    const lastCall = (publishMessage as ReturnType<typeof vi.fn>).mock.calls.at(
+      -1,
+    );
+    const msg = lastCall?.[2] as { content: string };
+    const parsed = JSON.parse(msg.content) as Record<string, unknown>;
+    expect(parsed["narrative"]).toBeDefined();
+    expect((parsed["contact"] as Record<string, unknown>)?.["value"]).toBe(
+      "me@example.com",
+    );
   });
 
   it("throws when called a second time on the same thread", async () => {

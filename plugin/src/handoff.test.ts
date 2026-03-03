@@ -8,7 +8,11 @@ import {
   listActiveHandoffs,
   getActiveHandoffContext,
 } from "./handoff.js";
-import type { PendingNotification, MatchNarrative } from "./types.js";
+import type {
+  PendingNotification,
+  MatchNarrative,
+  ContactChannel,
+} from "./types.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +65,11 @@ describe("buildMatchNotificationContext", () => {
 
 // ── FS-dependent handoff tests ────────────────────────────────────────────────
 
+const peerContact: ContactChannel = {
+  type: "email",
+  value: "alice@example.com",
+};
+
 describe("writePendingNotificationIfMatched + loadHandoffState", () => {
   beforeEach(() => {
     writePendingNotificationIfMatched(MATCH_ID, PEER_PUBKEY, narrative);
@@ -78,6 +87,24 @@ describe("writePendingNotificationIfMatched + loadHandoffState", () => {
   it("stores the narrative in the state file", () => {
     const state = loadHandoffState(MATCH_ID);
     expect(state?.narrative.headline).toBe(narrative.headline);
+  });
+
+  it("stores peer_contact when provided", () => {
+    const idWithContact = randomUUID();
+    writePendingNotificationIfMatched(
+      idWithContact,
+      PEER_PUBKEY,
+      narrative,
+      peerContact,
+    );
+    const state = loadHandoffState(idWithContact);
+    expect(state?.peer_contact?.type).toBe("email");
+    expect(state?.peer_contact?.value).toBe("alice@example.com");
+  });
+
+  it("omits peer_contact when not provided", () => {
+    const state = loadHandoffState(MATCH_ID);
+    expect(state?.peer_contact).toBeUndefined();
   });
 });
 
@@ -142,6 +169,31 @@ describe("advanceHandoff", () => {
     const result = advanceHandoff(uniqueId, 3, { exchange: true });
     expect(result).toContain("Handoff complete");
     expect(loadHandoffState(uniqueId)?.status).toBe("complete");
+  });
+
+  it("round 3: includes peer contact in output when available", () => {
+    const idWithContact = randomUUID();
+    writePendingNotificationIfMatched(
+      idWithContact,
+      PEER_PUBKEY,
+      narrative,
+      peerContact,
+    );
+    advanceHandoff(idWithContact, 1, { consent: "yes" });
+    advanceHandoff(idWithContact, 2, { prompt: "q" });
+    advanceHandoff(idWithContact, 2, { response: "r" });
+    const result = advanceHandoff(idWithContact, 3, { exchange: true });
+    expect(result).toContain("alice@example.com");
+    expect(result).toContain("email");
+    expect(result).toContain("[PEER CONTACT");
+  });
+
+  it("round 3: fallback message when peer_contact is absent", () => {
+    advanceHandoff(uniqueId, 1, { consent: "yes" });
+    advanceHandoff(uniqueId, 2, { prompt: "q" });
+    advanceHandoff(uniqueId, 2, { response: "r" });
+    const result = advanceHandoff(uniqueId, 3, { exchange: true });
+    expect(result).toContain("older client");
   });
 
   it("returns error when match_id is not found", () => {

@@ -329,11 +329,13 @@ export default {
                 kind: "agentTurn",
                 message:
                   "Run the TrueMatch background routine: " +
-                  "truematch observe --show, " +
-                  "truematch heartbeat, " +
-                  'node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
-                  "for each JSONL line received, register and process per the negotiation protocol, " +
-                  "truematch match --status. " +
+                  "(1) truematch observe --show — load your current observation of this user. " +
+                  "(2) truematch heartbeat — keep registration fresh. " +
+                  '(3) node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
+                  "for each JSONL line received, register it with truematch match --receive, then process per the negotiation protocol. " +
+                  "(4) truematch match --status — check all active threads. " +
+                  "(5) If there are no active negotiation threads AND truematch status shows matching_eligible=true, " +
+                  "run truematch match --start to find a new candidate. " +
                   "Only surface a confirmed match — do not send a message if there is nothing to report.",
               },
             });

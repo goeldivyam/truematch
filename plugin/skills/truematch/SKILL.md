@@ -243,7 +243,7 @@ truematch handoff --round 3 --match-id <match_id> --exchange
 
 **Round 2 (facilitated icebreaker):** Tell the user explicitly the icebreaker will be shared with the other person. One opt-out ask if requested. Record their response.
 
-**Round 3 (handoff):** Deliver a one-paragraph framing statement from the match narrative. Run `--exchange` to confirm contact exchange. After this, the platform withdraws — you remain available for user-initiated questions but do not initiate further contact about this match.
+**Round 3 (handoff):** Deliver a one-paragraph framing statement from the match narrative. Run `--exchange` to confirm contact exchange. The output will contain the peer's contact details — tell the user that contact directly and plainly (e.g. "Their contact is: email — alice@example.com"). Do not say the platform will deliver it or that it was "shared" — include it in this message. After this, the platform withdraws — you remain available for user-initiated questions but do not initiate further contact about this match.
 
 ---
 

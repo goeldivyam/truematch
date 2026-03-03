@@ -81,6 +81,15 @@ export type ContactType =
   | "whatsapp"
   | "imessage";
 
+// Single source of truth — must stay in sync with ContactType above.
+export const VALID_CONTACT_TYPES = new Set<string>([
+  "email",
+  "discord",
+  "telegram",
+  "whatsapp",
+  "imessage",
+]);
+
 export interface ContactChannel {
   type: ContactType;
   value: string;
@@ -130,6 +139,7 @@ export interface NegotiationState {
   status: "in_progress" | "matched" | "declined" | "expired";
   messages: NegotiationMessage[];
   match_narrative?: MatchNarrative; // populated from peer's match_propose content
+  peer_contact?: ContactChannel; // populated when peer sends match_propose with contact
 }
 
 export interface MatchNarrative {
@@ -182,6 +192,7 @@ export interface HandoffState {
   proposal_round?: number; // which negotiation round the proposal was made — used to calibrate watch_points
   icebreaker_prompt?: string; // generated in Round 2
   icebreaker_response?: string; // user's response in Round 2
+  peer_contact?: ContactChannel; // received from peer's match_propose message over Nostr
 }
 
 // ── Observation signals ───────────────────────────────────────────────────────

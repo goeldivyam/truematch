@@ -68,6 +68,7 @@ import type {
   MatchNarrative,
   UserPreferences,
 } from "./types.js";
+import { VALID_CONTACT_TYPES } from "./types.js";
 
 const { values: args, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -166,11 +167,7 @@ To complete setup, provide your contact channel:
     return;
   }
 
-  if (
-    !["email", "discord", "telegram", "whatsapp", "imessage"].includes(
-      contactType,
-    )
-  ) {
+  if (!VALID_CONTACT_TYPES.has(contactType)) {
     console.error(
       "Invalid --contact-type. Must be: email, discord, telegram, whatsapp, or imessage",
     );
@@ -501,22 +498,36 @@ async function cmdMatch(): Promise<void> {
       `Message registered. Thread ${thread_id.slice(0, 8)}... — status: ${state.status}`,
     );
     if (state.status === "matched") {
-      if (state.match_narrative) {
-        try {
-          writePendingNotificationIfMatched(
-            state.thread_id,
-            state.peer_pubkey,
-            state.match_narrative,
-          );
-        } catch (err) {
-          process.stderr.write(
-            `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
-              `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
-        }
+      if (!state.match_narrative) {
+        process.stderr.write(
+          `Warning: peer sent no parseable match narrative — notification written with empty narrative. ` +
+            `Peer may be running an older client.\n`,
+        );
+      }
+      try {
+        writePendingNotificationIfMatched(
+          state.thread_id,
+          state.peer_pubkey,
+          state.match_narrative ?? {
+            headline: "",
+            strengths: [],
+            watch_points: [],
+            confidence_summary: "",
+          },
+          state.peer_contact,
+        );
+      } catch (err) {
+        process.stderr.write(
+          `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
+            `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
+            `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
       }
       console.log("MATCH CONFIRMED.");
+      console.log("Headline:", state.match_narrative?.headline ?? "(pending)");
+      console.log(
+        "Notification queued — Claude will surface this naturally in the next session.",
+      );
     }
     return;
   }
@@ -568,31 +579,50 @@ async function cmdMatch(): Promise<void> {
       console.error("Invalid narrative JSON.");
       process.exit(1);
     }
+    const myReg = await loadRegistration();
+    if (!myReg) {
+      process.stderr.write(
+        `Warning: no registration found — proposal will be sent without your contact details. ` +
+          `Run 'truematch setup' to fix this before proposing.\n`,
+      );
+    }
     const state = await proposeMatch(
       identity.nsec,
       thread_id,
       narrative,
       DEFAULT_RELAYS,
+      myReg?.contact_channel,
     );
     if (state.status === "matched") {
-      if (state.match_narrative) {
-        try {
-          writePendingNotificationIfMatched(
-            state.thread_id,
-            state.peer_pubkey,
-            state.match_narrative,
-          );
-        } catch (err) {
-          process.stderr.write(
-            `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
-              `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
-        }
+      if (!state.match_narrative) {
+        process.stderr.write(
+          `Warning: peer sent no parseable match narrative — notification written with empty narrative. ` +
+            `Peer may be running an older client.\n`,
+        );
+      }
+      try {
+        writePendingNotificationIfMatched(
+          state.thread_id,
+          state.peer_pubkey,
+          state.match_narrative ?? {
+            headline: "",
+            strengths: [],
+            watch_points: [],
+            confidence_summary: "",
+          },
+          state.peer_contact,
+        );
+      } catch (err) {
+        process.stderr.write(
+          `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
+            `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
+            `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
       }
       console.log("MATCH CONFIRMED.");
+      console.log("Headline:", state.match_narrative?.headline ?? "(pending)");
       console.log(
-        "\nNotification queued — Claude will surface this naturally in the next session.",
+        "Notification queued — Claude will surface this naturally in the next session.",
       );
     } else {
       console.log(`Match proposal sent. Waiting for peer's proposal.`);
@@ -743,16 +773,30 @@ async function cmdMatch(): Promise<void> {
         if (!updated) return; // rejected (e.g. invalid thread_id)
 
         if (updated.status === "matched") {
-          if (updated.match_narrative) {
-            try {
-              writePendingNotificationIfMatched(
-                updated.thread_id,
-                updated.peer_pubkey,
-                updated.match_narrative,
-              );
-            } catch {
-              // Non-fatal — match is still confirmed, notification just won't fire
-            }
+          if (!updated.match_narrative) {
+            process.stderr.write(
+              `Warning: peer sent no parseable match narrative — notification written with empty narrative. ` +
+                `Peer may be running an older client.\n`,
+            );
+          }
+          try {
+            writePendingNotificationIfMatched(
+              updated.thread_id,
+              updated.peer_pubkey,
+              updated.match_narrative ?? {
+                headline: "",
+                strengths: [],
+                watch_points: [],
+                confidence_summary: "",
+              },
+              updated.peer_contact,
+            );
+          } catch (err) {
+            process.stderr.write(
+              `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
+                `Run 'truematch match --status --thread ${updated.thread_id}' to view the match.\n` +
+                `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+            );
           }
           console.log("\nMATCH CONFIRMED.");
           console.log(
