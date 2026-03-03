@@ -85,11 +85,7 @@ export interface TrueMatchMessage {
   content: string; // free-form text or JSON-serialised MatchNarrative
 }
 
-export type MessageType =
-  | "negotiation"
-  | "match_propose"
-  | "match_decline"
-  | "end";
+export type MessageType = "negotiation" | "match_propose" | "end";
 
 export interface NegotiationMessage {
   role: "us" | "peer";
@@ -103,11 +99,12 @@ export interface NegotiationState {
   round_count: number; // counts only our outgoing messages
   initiated_by_us: boolean;
   we_proposed: boolean; // true once we have sent a match_propose
+  peer_proposed: boolean; // true once peer has sent a match_propose
   started_at: string;
   last_activity: string;
   status: "in_progress" | "matched" | "declined" | "expired";
   messages: NegotiationMessage[];
-  match_narrative?: MatchNarrative;
+  match_narrative?: MatchNarrative; // populated from peer's match_propose content
 }
 
 export interface MatchNarrative {

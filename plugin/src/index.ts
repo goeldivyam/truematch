@@ -395,13 +395,7 @@ async function cmdMatch(): Promise<void> {
       );
       process.exit(1);
     }
-    await sendMessage(
-      identity.nsec,
-      identity.npub,
-      thread_id,
-      content,
-      DEFAULT_RELAYS,
-    );
+    await sendMessage(identity.nsec, thread_id, content, DEFAULT_RELAYS);
     console.log(`Message sent (thread ${thread_id.slice(0, 8)}...)`);
     return;
   }
@@ -436,7 +430,6 @@ async function cmdMatch(): Promise<void> {
     }
     const state = await proposeMatch(
       identity.nsec,
-      identity.npub,
       thread_id,
       narrative,
       DEFAULT_RELAYS,
@@ -463,7 +456,7 @@ async function cmdMatch(): Promise<void> {
       console.error("Specify thread: truematch match --decline --thread <id>");
       process.exit(1);
     }
-    await declineMatch(identity.nsec, identity.npub, thread_id, DEFAULT_RELAYS);
+    await declineMatch(identity.nsec, thread_id, DEFAULT_RELAYS);
     console.log(`Negotiation ended (thread ${thread_id.slice(0, 8)}...)`);
     return;
   }

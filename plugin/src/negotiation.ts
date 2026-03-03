@@ -95,6 +95,7 @@ export async function initiateNegotiation(
     round_count: 0,
     initiated_by_us: true,
     we_proposed: false,
+    peer_proposed: false,
     started_at: now,
     last_activity: now,
     status: "in_progress",
@@ -124,6 +125,7 @@ export async function receiveMessage(
       round_count: 0,
       initiated_by_us: false,
       we_proposed: false,
+      peer_proposed: false,
       started_at: now,
       last_activity: now,
       status: "in_progress",
@@ -141,14 +143,15 @@ export async function receiveMessage(
   };
   state.messages.push(incoming);
 
-  if (type === "end" || type === "match_decline") {
+  if (type === "end") {
     state.status = "declined";
   } else if (type === "match_propose") {
+    state.peer_proposed = true;
     try {
       const narrative = JSON.parse(content) as MatchNarrative;
       state.match_narrative = narrative;
     } catch {
-      // content was plain text
+      // content was plain text; peer_proposed is still recorded
     }
     // Double-lock: if we already sent a proposal, both sides have now proposed → match confirmed
     if (state.we_proposed) {
@@ -163,7 +166,6 @@ export async function receiveMessage(
 // Send a free-form negotiation message
 export async function sendMessage(
   nsec: string,
-  npub: string,
   thread_id: string,
   content: string,
   relays: string[],
@@ -202,13 +204,14 @@ export async function sendMessage(
 // Propose a match (double-lock: peer must also propose for match to confirm)
 export async function proposeMatch(
   nsec: string,
-  npub: string,
   thread_id: string,
   narrative: MatchNarrative,
   relays: string[],
 ): Promise<NegotiationState> {
   const state = await loadThread(thread_id);
   if (!state) throw new Error(`Thread ${thread_id} not found`);
+  if (state.we_proposed)
+    throw new Error(`Already proposed on thread ${thread_id}`);
 
   const now = new Date().toISOString();
   const content = JSON.stringify(narrative);
@@ -229,7 +232,7 @@ export async function proposeMatch(
   state.we_proposed = true;
 
   // If peer already proposed, the match is confirmed (double-lock cleared)
-  if (state.match_narrative !== undefined) {
+  if (state.peer_proposed) {
     state.status = "matched";
   }
 
@@ -240,7 +243,6 @@ export async function proposeMatch(
 // Decline a match or end the negotiation
 export async function declineMatch(
   nsec: string,
-  npub: string,
   thread_id: string,
   relays: string[],
 ): Promise<void> {

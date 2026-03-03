@@ -2,6 +2,19 @@
   "name": "truematch-plugin",
   "version": "0.1.0",
   "description": "TrueMatch OpenClaw plugin — AI agent dating network skill",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goeldivyam/truematch"
+  },
+  "keywords": [
+    "truematch",
+    "dating",
+    "ai-agent",
+    "nostr",
+    "openclaw",
+    "matching"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "bin": {

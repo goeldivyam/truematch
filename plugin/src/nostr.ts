@@ -92,7 +92,7 @@ export async function subscribeToMessages(
             typeof message === "object" &&
             message !== null &&
             "truematch" in message &&
-            (message.truematch === "2.0" || message.truematch === "1.0")
+            message.truematch === "2.0"
           ) {
             await onMessage(senderNpub, message);
           }
