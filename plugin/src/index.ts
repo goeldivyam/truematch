@@ -6,9 +6,10 @@
  *   truematch setup [--contact-type email|discord|telegram] [--contact-value <val>]
  *   truematch status [--relays]
  *   truematch observe --show | --update | --write '<json>'
+ *   truematch preferences --show | --set '<json>'
  *   truematch match --start | --status [--thread <id>] | --messages --thread <id>
  *                   | --send '<msg>' --thread <id>
- *                   | --propose --thread <id>
+ *                   | --propose --thread <id> --write '<narrative-json>'
  *                   | --decline --thread <id>
  *                   | --reset --thread <id>
  *   truematch deregister
@@ -28,6 +29,7 @@ import {
   emptyObservation,
   eligibilityReport,
   isEligible,
+  isStale,
 } from "./observation.js";
 import {
   loadThread,
@@ -38,7 +40,13 @@ import {
   proposeMatch,
   declineMatch,
   expireStaleThreads,
+  saveThread,
 } from "./negotiation.js";
+import {
+  loadPreferences,
+  savePreferences,
+  formatPreferences,
+} from "./preferences.js";
 import {
   checkRelayConnectivity,
   subscribeToMessages,
@@ -49,6 +57,7 @@ import type {
   ObservationSummary,
   TrueMatchMessage,
   MatchNarrative,
+  UserPreferences,
 } from "./types.js";
 
 const { values: args, positionals } = parseArgs({
@@ -59,6 +68,7 @@ const { values: args, positionals } = parseArgs({
     show: { type: "boolean" },
     update: { type: "boolean" },
     write: { type: "string" },
+    set: { type: "string" },
     relays: { type: "boolean" },
     start: { type: "boolean" },
     status: { type: "boolean" },
@@ -88,6 +98,9 @@ async function main(): Promise<void> {
     case "observe":
       await cmdObserve();
       break;
+    case "preferences":
+      await cmdPreferences();
+      break;
     case "match":
       await cmdMatch();
       break;
@@ -98,11 +111,12 @@ async function main(): Promise<void> {
       console.log(`TrueMatch CLI — https://clawmatch.org
 
 Commands:
-  setup       Generate identity and register with TrueMatch
-  status      Show registration and observation status
-  observe     View or update the ObservationSummary
-  match       Manage matching negotiations
-  deregister  Remove from the matching pool
+  setup        Generate identity and register with TrueMatch
+  status       Show registration and observation status
+  observe      View or update the ObservationSummary
+  preferences  Set or view Layer 0 matching filters (gender, location, age)
+  match        Manage matching negotiations
+  deregister   Remove from the matching pool
 
 Run with --help on any command for options.`);
   }
@@ -169,7 +183,13 @@ async function cmdStatus(): Promise<void> {
   } else {
     console.log(`\nObservation eligibility:\n${eligibilityReport(obs)}`);
     console.log(`\nPool eligible: ${isEligible(obs) ? "YES" : "NO"}`);
+    if (isStale(obs)) {
+      console.log("⚠ Manifest is stale — run 'truematch observe --update'");
+    }
   }
+
+  const prefs = await loadPreferences();
+  console.log(`\nPreferences: ${formatPreferences(prefs)}`);
 
   const active = await listActiveThreads();
   if (active.length > 0) {
@@ -223,16 +243,58 @@ async function cmdObserve(): Promise<void> {
     console.log(JSON.stringify(existing, null, 2));
     console.log("\nREVIEW_INSTRUCTIONS:");
     console.log(
-      "Based on your observations of this user across real conversations, " +
-        "update the ObservationSummary above. Focus on what you have actually " +
-        "observed — not what the user has told you about themselves.\n" +
-        "When done, write the updated JSON using:\n" +
+      "Review your memory of this user and update the confidence scores and observation counts above.\n" +
+        "For each dimension, set:\n" +
+        "  confidence: 0.0–1.0 (how well do you know this dimension?)\n" +
+        "  observation_count: how many signals have you seen?\n" +
+        "  behavioral_context_diversity: low/medium/high (one context vs many?)\n" +
+        "Set dealbreaker_gate_state to: confirmed | below_floor | none_observed\n\n" +
+        "When done, save with:\n" +
         "  truematch observe --write '<updated-json>'",
     );
     return;
   }
 
   console.log("Usage: truematch observe --show | --update | --write '<json>'");
+}
+
+// ── preferences ───────────────────────────────────────────────────────────────
+
+async function cmdPreferences(): Promise<void> {
+  if (args["show"]) {
+    const prefs = await loadPreferences();
+    console.log(JSON.stringify(prefs, null, 2));
+    console.log(`\n${formatPreferences(prefs)}`);
+    return;
+  }
+
+  if (args["set"]) {
+    const json = args["set"] as string;
+    let prefs: UserPreferences;
+    try {
+      prefs = JSON.parse(json) as UserPreferences;
+    } catch {
+      console.error("Invalid JSON");
+      process.exit(1);
+    }
+    await savePreferences(prefs);
+    console.log(`Preferences saved.\n${formatPreferences(prefs)}`);
+    console.log(
+      "\nNote: serious/casual intent is not set here — Claude infers it from your behavior.",
+    );
+    return;
+  }
+
+  console.log(`Usage:
+  truematch preferences --show
+  truematch preferences --set '{"gender_preference":["woman"],"location":"London, UK","age_range":{"min":25,"max":40}}'
+
+Fields:
+  gender_preference   Array of strings, e.g. ["woman", "non-binary"]. Empty = no filter.
+  location            Plain text, e.g. "London, UK". Agent interprets proximity.
+  age_range           Object with optional min/max, e.g. {"min": 25, "max": 40}
+
+Note: serious/casual relationship intent is NOT set here — Claude infers it from your behavior.`);
 }
 
 // ── match ─────────────────────────────────────────────────────────────────────
@@ -255,7 +317,6 @@ async function cmdMatch(): Promise<void> {
       return;
     }
     state.status = "declined";
-    const { saveThread } = await import("./negotiation.js");
     await saveThread(state);
     console.log(`Thread ${thread_id} marked as declined.`);
     return;
@@ -346,7 +407,7 @@ async function cmdMatch(): Promise<void> {
     return;
   }
 
-  // --propose --thread <id>
+  // --propose --thread <id> --write '<narrative-json>'
   if (args["propose"]) {
     if (!identity) {
       console.error("Not set up. Run: truematch setup");
@@ -354,23 +415,24 @@ async function cmdMatch(): Promise<void> {
     }
     const thread_id = args["thread"] as string | undefined;
     if (!thread_id) {
-      console.error("Specify thread: truematch match --propose --thread <id>");
+      console.error(
+        "Specify thread: truematch match --propose --thread <id> --write '<json>'",
+      );
       process.exit(1);
     }
     const narrativeJson = args["write"] as string | undefined;
-    let narrative: MatchNarrative;
-    if (narrativeJson) {
-      try {
-        narrative = JSON.parse(narrativeJson) as MatchNarrative;
-      } catch {
-        console.error("Invalid narrative JSON. Pass with --write '<json>'");
-        process.exit(1);
-      }
-    } else {
+    if (!narrativeJson) {
       console.error(
         "Provide match narrative with --write '<json>'\n" +
           'Example: truematch match --propose --thread <id> --write \'{"headline":"...","strengths":[],"watch_points":[],"confidence_summary":"..."}\'',
       );
+      process.exit(1);
+    }
+    let narrative: MatchNarrative;
+    try {
+      narrative = JSON.parse(narrativeJson) as MatchNarrative;
+    } catch {
+      console.error("Invalid narrative JSON.");
       process.exit(1);
     }
     const state = await proposeMatch(
@@ -422,6 +484,14 @@ async function cmdMatch(): Promise<void> {
       process.exit(1);
     }
 
+    if (isStale(obs)) {
+      console.error(
+        "Observation manifest is stale. Run: truematch observe --update\n" +
+          "This ensures your latest context is used in matching.",
+      );
+      process.exit(1);
+    }
+
     await expireStaleThreads(identity.nsec, identity.npub, DEFAULT_RELAYS);
 
     const agents = await listAgents();
@@ -435,18 +505,20 @@ async function cmdMatch(): Promise<void> {
     const peer = candidates[0];
     console.log(`Starting negotiation with ${peer.pubkey.slice(0, 12)}...`);
 
-    const state = await initiateNegotiation(
-      identity.nsec,
-      identity.npub,
-      peer.pubkey,
-      obs,
-      DEFAULT_RELAYS,
-    );
+    // Create the thread — Claude writes and sends the opening via --send
+    const state = await initiateNegotiation(peer.pubkey);
 
-    console.log(`Negotiation started. Thread: ${state.thread_id}`);
+    console.log(`Thread created: ${state.thread_id}`);
+    console.log(`\nNow write your opening message. Include:`);
+    console.log(`  - Your user's core values (Schwartz labels + confidence)`);
+    console.log(`  - Dealbreaker result: pass or fail`);
+    console.log(`  - Life phase + confidence`);
+    console.log(`  - One question for the peer\n`);
+    console.log(`Send it with:`);
     console.log(
-      "Opening message sent. Listening for response (Ctrl+C to stop)...\n",
+      `  truematch match --send '<your opening>' --thread ${state.thread_id}`,
     );
+    console.log(`\nThen listen for their response:`);
 
     // Subscribe and process incoming messages
     const unsubscribe = await subscribeToMessages(
@@ -476,15 +548,12 @@ async function cmdMatch(): Promise<void> {
           process.exit(0);
         }
 
-        // Print the message for the bridge / interactive session
-        console.log(
-          `\n[TrueMatch] Incoming message from peer ${from.slice(0, 12)}:`,
-        );
+        console.log(`\n[TrueMatch] Message from peer ${from.slice(0, 12)}:`);
         console.log(`Thread: ${msg.thread_id}`);
         console.log(`Round: ${updated.round_count} / 10\n`);
         console.log(msg.content);
         console.log(
-          "\nRespond with: truematch match --send '<message>' --thread " +
+          "\nRespond with: truematch match --send '<reply>' --thread " +
             msg.thread_id,
         );
       },
@@ -499,13 +568,13 @@ async function cmdMatch(): Promise<void> {
   }
 
   console.log(`Usage:
-  truematch match --start                          Start a new negotiation
-  truematch match --status [--thread <id>]         Show negotiation status
-  truematch match --messages --thread <id>         Show conversation history
-  truematch match --send '<msg>' --thread <id>     Send a message
+  truematch match --start                           Start a new negotiation
+  truematch match --status [--thread <id>]          Show negotiation status
+  truematch match --messages --thread <id>          Show conversation history
+  truematch match --send '<msg>' --thread <id>      Send a message
   truematch match --propose --thread <id> --write '<narrative-json>'
-  truematch match --decline --thread <id>          End the negotiation
-  truematch match --reset --thread <id>            Force-reset thread state`);
+  truematch match --decline --thread <id>           End the negotiation
+  truematch match --reset --thread <id>             Force-reset thread state`);
 }
 
 // ── deregister ────────────────────────────────────────────────────────────────

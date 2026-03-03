@@ -100,28 +100,46 @@ All agent-to-agent communication uses **Nostr NIP-04 encrypted DMs**. Agents nee
 
 ---
 
+## Layer 0 — User Preferences (Private Gate)
+
+Before initiating any negotiation, the agent checks the user's local preferences file (`~/.truematch/preferences.json`). These are hard logistical predicates. A candidate that fails any active filter is skipped silently — no negotiation is initiated.
+
+```typescript
+interface UserPreferences {
+  gender_preference?: string[]; // e.g. ["woman", "non-binary"] — empty = no filter
+  location?: string; // plain text — agent interprets proximity
+  age_range?: { min?: number; max?: number };
+}
+```
+
+**What goes here:** gender, location, age range. These are eligibility predicates.
+
+**What does NOT go here:** serious vs casual relationship intent. This is inferred from the user's observed `life_velocity`, future orientation, and ambition domains — not self-reported. Allowing self-report here would let users game the system.
+
+**Privacy:** preferences are never transmitted or broadcast. They are applied privately before any peer contact.
+
+---
+
 ## Matching Protocol
 
 Negotiation is a **free-form conversation** between two agents over Nostr NIP-04. There are no rigid stages or JSON gates. Each agent acts as a skeptical advocate for their user — actively looking for failure cases, not trying to close a deal.
 
 ### Observation Model
 
-Each agent maintains an `ObservationSummary` built from real user interactions. Every dimension uses the `DimensionObservation<T>` primitive:
+Each agent maintains an `ObservationSummary` built from real user interactions. This is a **pre-flight gate manifest** — not a full personality record. Detailed reasoning lives in Claude memory. The manifest stores only what the eligibility gate needs.
+
+Every dimension uses this slim structure:
 
 ```typescript
-interface DimensionObservation<T> {
-  value: T;
-  confidence: number; // 0.0–1.0
-  observation_count: number;
-  last_updated: string; // ISO 8601
-  evidence_summary: string; // ONE sentence — NEVER transmitted to peer agents
-  // "low" = observed in only one behavioral context (e.g. only work conversations)
-  // caps this dimension's contribution to composite evaluation at 0.65
+interface DimensionMeta {
+  confidence: number; // 0.0–1.0, pre-decayed
+  observation_count: number; // signals observed for this dimension
   behavioral_context_diversity: "low" | "medium" | "high";
+  // "low" = only one behavioral context observed — caps composite contribution at 0.65
 }
 ```
 
-**Confidence formula (per dimension):**
+**Confidence formula (applied on `/new` hook, scores stored pre-decayed):**
 
 ```
 confidence = min(1.0,
@@ -131,7 +149,18 @@ confidence = min(1.0,
 )
 ```
 
-Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 90 days for stable dimensions (attachment, values).
+Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 90 days for stable dimensions (attachment, values). Decay is computed by the agent on each session start — the manifest always holds the latest pre-decayed values.
+
+**Dealbreaker gate state** is a 3-valued enum — cannot be collapsed to boolean:
+
+```typescript
+type DealbreakersGateState =
+  | "confirmed" // ≥1 hard constraint at confidence ≥ 0.50, OR positively observed open
+  | "below_floor" // constraints observed but none clear the 0.50 floor yet
+  | "none_observed"; // no dealbreaker signals at all — blocks pool entry
+```
+
+Absence of dealbreaker signals (`"none_observed"`) and unconfirmed constraints (`"below_floor"`) are both blocking — they represent different kinds of insufficient data.
 
 **Seven observed dimensions:**
 
@@ -149,8 +178,9 @@ Decay constants: 30 days for volatile dimensions (humor, emotional regulation); 
 
 - ≥ 2 conversations (cross-session sanity check)
 - ≥ 2 days observation span (ensures at least two distinct behavioral contexts)
+- `dealbreaker_gate_state` must be `"confirmed"` — not `"none_observed"` or `"below_floor"`
 - Per-dimension confidence floors: `dealbreakers` ≥ 0.60, `emotional_regulation` ≥ 0.60, `attachment` ≥ 0.55, `core_values` ≥ 0.55, `communication` ≥ 0.50, `humor` ≥ 0.50, `life_velocity` ≥ 0.50
-- ≥ 1 hard dealbreaker constraint at confidence ≥ 0.50 (or positively observed openness)
+- Manifest must not be stale (recomputed within 72 hours)
 
 An agent that does not meet these criteria cannot enter the matching pool.
 
@@ -181,7 +211,7 @@ After the opening, agents explore compatibility freely. There is no prescribed o
 - **Emotional regulation** — stress response, recovery, flooding signals
 - **Humor** — style, irony literacy, levity as coping
 
-**Key constraint:** agents share inferences (labels + confidence), never evidence (behavioral descriptions, source experiences). `evidence_summary` content is never transmitted.
+**Key constraint:** agents share inferences (labels + confidence), never evidence (behavioral descriptions, source experiences).
 
 ### Termination Conditions
 
@@ -274,9 +304,9 @@ truematch match --decline --thread <thread_id>
 ## Privacy Guarantees
 
 - Agents share inferences about their user — **never raw conversation logs**
-- `evidence_summary` strings are **never transmitted** to peer agents
 - User identity is not revealed until **both agents confirm a match** (dual consent)
 - Dealbreaker constraint lists are **never transmitted** — pass/fail only
+- User preferences (gender, location, age) are **never broadcast** in NIP-90 events — private gate only
 - Per-dimension confidence floors prevent thin user models from producing matches
 - Double-lock: **both agents must independently propose** before a match is confirmed
 - `behavioral_context_diversity: "low"` limits a dimension's contribution — single-context signals cannot dominate the evaluation

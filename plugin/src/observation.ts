@@ -2,19 +2,22 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { TRUEMATCH_DIR } from "./identity.js";
-import type { ObservationSummary } from "./types.js";
+import type {
+  ObservationSummary,
+  DimensionMeta,
+  DealbreakersGateState,
+} from "./types.js";
 
 const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
-const AGENT_VERSION = "0.1.0";
 
-// Global minimums — cross-session sanity check (agent must have seen user across 2 separate contexts)
+// Global minimums — cross-session sanity check
 const GLOBAL_MIN_CONVERSATIONS = 2;
 const GLOBAL_MIN_DAYS = 2;
 
-// Per-dimension confidence floors (psychologist-derived; encode the typical conversation count needed)
+// Per-dimension confidence floors (psychologist-derived)
 // attachment/emotional_regulation: high contextual sensitivity → higher floor
-// dealbreakers: can surface in a single conversation → higher floor but no day requirement
-const DIMENSION_FLOORS = {
+// dealbreakers: can surface in a single conversation → higher floor, no day req
+export const DIMENSION_FLOORS = {
   attachment: 0.55,
   core_values: 0.55,
   communication: 0.5,
@@ -24,6 +27,10 @@ const DIMENSION_FLOORS = {
   dealbreakers: 0.6,
 } as const;
 
+// Manifest is stale if eligibility was last computed more than this many hours ago.
+// Bridge should trigger re-synthesis if stale.
+export const ELIGIBILITY_FRESHNESS_HOURS = 72;
+
 export async function loadObservation(): Promise<ObservationSummary | null> {
   if (!existsSync(OBSERVATION_FILE)) return null;
   const raw = await readFile(OBSERVATION_FILE, "utf8");
@@ -31,9 +38,11 @@ export async function loadObservation(): Promise<ObservationSummary | null> {
 }
 
 export async function saveObservation(obs: ObservationSummary): Promise<void> {
+  const now = new Date().toISOString();
   const updated: ObservationSummary = {
     ...obs,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
+    eligibility_computed_at: now,
     matching_eligible: isEligible(obs),
   };
   await writeFile(OBSERVATION_FILE, JSON.stringify(updated, null, 2), "utf8");
@@ -42,6 +51,8 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
 export function isEligible(obs: ObservationSummary): boolean {
   if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
   if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
+  if (obs.dealbreaker_gate_state === "below_floor") return false;
+  if (obs.dealbreaker_gate_state === "none_observed") return false;
   return (
     obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
     obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
@@ -54,82 +65,33 @@ export function isEligible(obs: ObservationSummary): boolean {
   );
 }
 
-export function emptyObservation(): ObservationSummary {
-  const now = new Date().toISOString();
-  const emptyDim = <T>(value: T) => ({
-    value,
-    confidence: 0,
-    observation_count: 0,
-    last_updated: now,
-    evidence_summary: "",
-    behavioral_context_diversity: "low" as const,
-  });
-
-  return {
-    agent_version: AGENT_VERSION,
-    created_at: now,
-    updated_at: now,
-    conversation_count: 0,
-    observation_span_days: 0,
-    matching_eligible: false,
-
-    attachment: emptyDim({ primary: "secure" as const, secondary: null }),
-    core_values: emptyDim({ ranked: [] }),
-    communication: emptyDim({
-      dominance: "neutral" as const,
-      affiliation: "neutral" as const,
-      directness: "direct" as const,
-      emotional_disclosure: "moderate" as const,
-      conflict_approach: "collaborative" as const,
-      response_latency_preference: "moderate" as const,
-    }),
-    emotional_regulation: emptyDim({
-      regulation_level: "moderate" as const,
-      flooding_signals_present: false,
-      reappraisal_tendency: "moderate" as const,
-      suppression_tendency: "moderate" as const,
-    }),
-    humor: emptyDim({
-      primary: "affiliative" as const,
-      secondary: null,
-      irony_literacy: "moderate" as const,
-      levity_as_coping: false,
-    }),
-    life_velocity: emptyDim({
-      phase: "early-adulthood" as const,
-      future_orientation: "stable" as const,
-      ambition_domains: [],
-    }),
-    dealbreakers: emptyDim({ constraints: [] }),
-  };
+export function isStale(obs: ObservationSummary): boolean {
+  const computedAt = new Date(obs.eligibility_computed_at).getTime();
+  return Date.now() - computedAt > ELIGIBILITY_FRESHNESS_HOURS * 60 * 60 * 1000;
 }
 
-// Strip evidence_summary fields before transmitting to peer agents.
-// This is a privacy guarantee — internal reasoning is never shared.
-export function stripEvidenceSummaries(
-  obs: ObservationSummary,
-): ObservationSummary {
-  const strip = <T>(dim: {
-    value: T;
-    confidence: number;
-    observation_count: number;
-    last_updated: string;
-    evidence_summary: string;
-    behavioral_context_diversity: "low" | "medium" | "high";
-  }) => ({
-    ...dim,
-    evidence_summary: "", // always cleared before transmission
-  });
+export function emptyObservation(): ObservationSummary {
+  const now = new Date().toISOString();
+  const emptyDim: DimensionMeta = {
+    confidence: 0,
+    observation_count: 0,
+    behavioral_context_diversity: "low",
+  };
 
   return {
-    ...obs,
-    attachment: strip(obs.attachment),
-    core_values: strip(obs.core_values),
-    communication: strip(obs.communication),
-    emotional_regulation: strip(obs.emotional_regulation),
-    humor: strip(obs.humor),
-    life_velocity: strip(obs.life_velocity),
-    dealbreakers: strip(obs.dealbreakers),
+    updated_at: now,
+    eligibility_computed_at: now,
+    matching_eligible: false,
+    conversation_count: 0,
+    observation_span_days: 0,
+    attachment: { ...emptyDim },
+    core_values: { ...emptyDim },
+    communication: { ...emptyDim },
+    emotional_regulation: { ...emptyDim },
+    humor: { ...emptyDim },
+    life_velocity: { ...emptyDim },
+    dealbreakers: { ...emptyDim },
+    dealbreaker_gate_state: "none_observed",
   };
 }
 
@@ -148,38 +110,41 @@ export function eligibilityReport(obs: ObservationSummary): string {
     obs.observation_span_days >= GLOBAL_MIN_DAYS,
     `${obs.observation_span_days} days / ${GLOBAL_MIN_DAYS} required`,
   );
+  pass(
+    "Dealbreaker gate",
+    obs.dealbreaker_gate_state !== "below_floor" &&
+      obs.dealbreaker_gate_state !== "none_observed",
+    obs.dealbreaker_gate_state,
+  );
 
-  const dims: [string, number, number][] = [
-    ["Attachment", obs.attachment.confidence, DIMENSION_FLOORS.attachment],
-    ["Core values", obs.core_values.confidence, DIMENSION_FLOORS.core_values],
-    [
-      "Communication",
-      obs.communication.confidence,
-      DIMENSION_FLOORS.communication,
-    ],
+  const dims: [string, DimensionMeta, number][] = [
+    ["Attachment", obs.attachment, DIMENSION_FLOORS.attachment],
+    ["Core values", obs.core_values, DIMENSION_FLOORS.core_values],
+    ["Communication", obs.communication, DIMENSION_FLOORS.communication],
     [
       "Emotional regulation",
-      obs.emotional_regulation.confidence,
+      obs.emotional_regulation,
       DIMENSION_FLOORS.emotional_regulation,
     ],
-    ["Humor", obs.humor.confidence, DIMENSION_FLOORS.humor],
-    [
-      "Life velocity",
-      obs.life_velocity.confidence,
-      DIMENSION_FLOORS.life_velocity,
-    ],
-    [
-      "Dealbreakers",
-      obs.dealbreakers.confidence,
-      DIMENSION_FLOORS.dealbreakers,
-    ],
+    ["Humor", obs.humor, DIMENSION_FLOORS.humor],
+    ["Life velocity", obs.life_velocity, DIMENSION_FLOORS.life_velocity],
+    ["Dealbreakers", obs.dealbreakers, DIMENSION_FLOORS.dealbreakers],
   ];
 
-  for (const [name, conf, floor] of dims) {
+  for (const [name, dim, floor] of dims) {
+    const diversity =
+      dim.behavioral_context_diversity !== "low" ? "" : " [low diversity]";
     pass(
       name,
-      conf >= floor,
-      `confidence ${conf.toFixed(2)} / ${floor.toFixed(2)} required`,
+      dim.confidence >= floor,
+      `confidence ${dim.confidence.toFixed(2)} / ${floor.toFixed(2)} required (${dim.observation_count} signals)${diversity}`,
+    );
+  }
+
+  const stale = isStale(obs);
+  if (stale) {
+    lines.push(
+      `⚠ Manifest stale — last computed ${obs.eligibility_computed_at}. Run: truematch observe --update`,
     );
   }
 

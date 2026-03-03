@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { TRUEMATCH_DIR } from "./identity.js";
 import { publishMessage } from "./nostr.js";
+import { DIMENSION_FLOORS } from "./observation.js";
 import type {
   NegotiationState,
   NegotiationMessage,
@@ -18,24 +19,13 @@ const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
 // Double-lock: both agents must independently clear this threshold
-const COMPOSITE_THRESHOLD = 0.74;
-
-// Per-dimension floors (must match observation.ts DIMENSION_FLOORS)
-const DIMENSION_FLOORS = {
-  attachment: 0.55,
-  core_values: 0.55,
-  communication: 0.5,
-  emotional_regulation: 0.6,
-  humor: 0.5,
-  life_velocity: 0.5,
-  dealbreakers: 0.6,
-} as const;
+export const COMPOSITE_THRESHOLD = 0.74;
 
 // Confidence cap for dimensions observed in only one behavioral context
 const LOW_DIVERSITY_CAP = 0.65;
 
 // Maximum rounds before hard termination
-const MAX_ROUNDS = 10;
+export const MAX_ROUNDS = 10;
 
 async function ensureThreadsDir(): Promise<void> {
   if (!existsSync(THREADS_DIR)) {
@@ -98,46 +88,23 @@ export async function expireStaleThreads(
   }
 }
 
-// Start a new negotiation thread and send the opening message
+// Create a new negotiation thread. Does NOT send an opening message —
+// Claude writes and sends the opening via `truematch match --send`.
 export async function initiateNegotiation(
-  nsec: string,
-  npub: string,
   peerNpub: string,
-  observation: ObservationSummary,
-  relays: string[],
 ): Promise<NegotiationState> {
   const thread_id = randomUUID();
   const now = new Date().toISOString();
 
-  // Opening: share values, dealbreaker pass/fail, life phase
-  const dealbreakersPass = checkDealbreakers(observation);
-  const openingContent = buildOpeningMessage(observation, dealbreakersPass);
-
-  const msg: TrueMatchMessage = {
-    truematch: "2.0",
-    thread_id,
-    type: dealbreakersPass ? "negotiation" : "end",
-    timestamp: now,
-    content: openingContent,
-  };
-
-  await publishMessage(nsec, npub, peerNpub, msg, relays);
-
-  const opening: NegotiationMessage = {
-    role: "us",
-    content: openingContent,
-    timestamp: now,
-  };
-
   const state: NegotiationState = {
     thread_id,
     peer_pubkey: peerNpub,
-    round_count: 1,
+    round_count: 0,
     initiated_by_us: true,
     started_at: now,
     last_activity: now,
-    status: dealbreakersPass ? "in_progress" : "declined",
-    messages: [opening],
+    status: "in_progress",
+    messages: [],
   };
 
   await saveThread(state);
@@ -182,13 +149,11 @@ export async function receiveMessage(
   if (type === "end" || type === "match_decline") {
     state.status = "declined";
   } else if (type === "match_propose") {
-    // Peer proposed — record but don't auto-confirm; Claude must also propose
-    // Store the narrative from peer if present
     try {
       const narrative = JSON.parse(content) as MatchNarrative;
       state.match_narrative = narrative;
     } catch {
-      // content was plain text, that's fine
+      // content was plain text
     }
   }
 
@@ -230,6 +195,7 @@ export async function sendMessage(
   await publishMessage(nsec, npub, state.peer_pubkey, msg, relays);
 
   state.messages.push({ role: "us", content, timestamp: now });
+  state.round_count += 1;
   state.last_activity = now;
   await saveThread(state);
 }
@@ -266,11 +232,9 @@ export async function proposeMatch(
   state.last_activity = now;
 
   // If peer already proposed, the match is confirmed (double-lock cleared)
-  const peerAlreadyProposed = state.match_narrative !== undefined;
-  if (peerAlreadyProposed) {
+  if (state.match_narrative !== undefined) {
     state.status = "matched";
   }
-  // Otherwise wait for peer's match_propose
 
   await saveThread(state);
   return state;
@@ -294,12 +258,6 @@ export async function declineMatch(
 }
 
 // ── Scoring helpers ───────────────────────────────────────────────────────────
-
-function checkDealbreakers(obs: ObservationSummary): boolean {
-  // Returns false if any hard dealbreaker has confidence >= 0.50 and marks as_hard
-  // (In practice, the LLM evaluates peer constraints — this only checks our own eligibility)
-  return obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers;
-}
 
 // Cap confidence for dimensions observed in only one behavioral context
 export function effectiveConfidence(d: {
@@ -340,8 +298,6 @@ export function checkDimensionFloors(obs: ObservationSummary): boolean {
   );
 }
 
-export { COMPOSITE_THRESHOLD, MAX_ROUNDS };
-
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 async function sendEnd(
@@ -363,33 +319,5 @@ async function sendEnd(
       content: "",
     },
     relays,
-  );
-}
-
-function buildOpeningMessage(
-  obs: ObservationSummary,
-  dealbreakersPass: boolean,
-): string {
-  if (!dealbreakersPass) {
-    return "My user does not meet the dealbreaker criteria for a match at this time.";
-  }
-
-  const values = obs.core_values.value.ranked
-    .slice(0, 4)
-    .map(
-      (v, i) =>
-        `${v} (rank ${i + 1}, confidence ${obs.core_values.confidence.toFixed(2)})`,
-    )
-    .join(", ");
-
-  const phase = `${obs.life_velocity.value.phase} (confidence ${obs.life_velocity.confidence.toFixed(2)})`;
-  const orientation = obs.life_velocity.value.future_orientation;
-
-  return (
-    `Opening from my agent on behalf of my user:\n\n` +
-    `Core values: ${values}\n` +
-    `Dealbreakers: pass\n` +
-    `Life phase: ${phase}, future orientation: ${orientation}\n\n` +
-    `To start: what life domains is your user most focused on building or protecting right now?`
   );
 }
