@@ -271,14 +271,14 @@ truematch/
 │   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks
 │   │   ├── poll.ts                # One-shot Nostr relay poller — called by bridge.sh, outputs JSONL to stdout
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers
-│   │   ├── registry.ts            # TrueMatch registry registration and deregistration
+│   │   ├── registry.ts            # TrueMatch registry registration and deregistration; respects TRUEMATCH_REGISTRY_URL_OVERRIDE
 │   │   ├── signals.test.ts        # Tests: pickPendingSignal, buildSignalInstruction, recordSignalDelivered
 │   │   ├── signals.ts             # Observation signal engine — picks when Claude surfaces a growing observation (before_prompt_build)
 │   │   ├── test-setup.ts          # Vitest setup — redirects HOME to a per-run temp directory
 │   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
 │   ├── package.json               # v0.1.4
-│   ├── simulate.mjs               # E2E simulation script — 12 scenarios (scenarios 9, 11, 12 opt-in via --live-nostr); uses TRUEMATCH_DIR_OVERRIDE for isolation
+│   ├── simulate.mjs               # E2E simulation script — 14 scenarios (9, 11, 12, 14 opt-in via --live-nostr); uses TRUEMATCH_DIR_OVERRIDE + TRUEMATCH_REGISTRY_URL_OVERRIDE
 │   ├── tsconfig.json
 │   └── vitest.config.ts           # Plugin test config — includes src/**/*.test.ts
 ├── skill/

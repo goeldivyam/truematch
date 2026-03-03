@@ -16,9 +16,10 @@
  *   Scenario 11 — Multi-party live Nostr: 6 agents, 3 pairs (opt-in: --live-nostr)
  *   Scenario 12 — poll.ts JSONL output via child process (opt-in: --live-nostr)
  *   Scenario 13 — match --start with mock registry: register/list/deregister + candidate selection
+ *   Scenario 14 — Full end-to-end: mock registry discovery → live Nostr negotiation → match (opt-in: --live-nostr)
  *
  * Scenarios 1-8, 10, 13 bypass live Nostr relays and test the state machine directly.
- * Scenarios 9, 11, 12 publish real NIP-04 DMs to public relays (--live-nostr flag).
+ * Scenarios 9, 11, 12, 14 publish real NIP-04 DMs to public relays (--live-nostr flag).
  * Uses TRUEMATCH_DIR_OVERRIDE + TRUEMATCH_REGISTRY_URL_OVERRIDE for full isolation.
  *
  * What is NOT covered by simulation:
@@ -1381,6 +1382,142 @@ async function scenario13() {
   }
 }
 
+// ── Scenario 14: Full end-to-end (mock registry + live Nostr) ────────────────
+//
+// The complete production flow in simulation:
+//   1. Both agents register with a mock registry
+//   2. Alice discovers Bob via listAgents() (candidate selection)
+//   3. Alice initiates a thread and sends the opening over live Nostr relays
+//   4. Bob receives it via subscription, processes inbox, proposes match
+//   5. Alice receives Bob's proposal, counter-proposes → double-lock confirmed
+//   6. Both sides show status=matched
+//
+// This is the only scenario that exercises registry discovery AND Nostr transport
+// together. Requires --live-nostr.
+
+async function scenario14() {
+  section("Scenario 14: Full end-to-end (mock registry + live Nostr)");
+
+  const mock = await startMockRegistry();
+  process.env["TRUEMATCH_REGISTRY_URL_OVERRIDE"] = mock.url;
+
+  const since = Math.floor(Date.now() / 1000) - 10;
+  const alice = new Party("alice14");
+  const bob = new Party("bob14");
+
+  const narrative = {
+    headline:
+      "Full end-to-end match — registry discovery + live relay negotiation",
+    strengths: ["values alignment", "compatible communication style"],
+    watch_points: ["not yet known — first contact"],
+    confidence_summary: "0.77 composite",
+  };
+
+  try {
+    // ── Both agents register ───────────────────────────────────────────────
+    setAgent(alice.dir);
+    await register(alice.identity, "https://alice.example.com/card", {
+      type: "email",
+      value: "alice@example.com",
+    });
+    pass("Alice registered with mock registry");
+
+    setAgent(bob.dir);
+    await register(bob.identity, "https://bob.example.com/card", {
+      type: "email",
+      value: "bob@example.com",
+    });
+    pass("Bob registered with mock registry");
+
+    // ── Alice discovers Bob via registry ──────────────────────────────────
+    setAgent(alice.dir);
+    const all = await listAgents();
+    const candidates = all.filter((a) => a.pubkey !== alice.identity.npub);
+    if (candidates.length !== 1 || candidates[0].pubkey !== bob.identity.npub) {
+      fail(
+        "Alice should discover exactly Bob as a candidate",
+        candidates.length,
+      );
+      return;
+    }
+    pass("Alice discovered Bob via registry (1 candidate)");
+
+    // ── Subscribe both to live relays ─────────────────────────────────────
+    await Promise.all([alice.subscribe(since), bob.subscribe(since)]);
+    pass("Both agents subscribed to live relays");
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // ── Alice initiates and sends opening over live relay ─────────────────
+    setAgent(alice.dir);
+    const thread = await initiateNegotiation(bob.identity.npub);
+    await sendMessage(
+      alice.identity.nsec,
+      thread.thread_id,
+      "Hi — my agent found you through the registry. Keen to explore compatibility.",
+      DEFAULT_RELAYS,
+    );
+    pass("Alice sent opening message over live relay");
+
+    // ── Bob receives opening ──────────────────────────────────────────────
+    if (!(await bob.waitForMessages(1))) {
+      fail("Bob did not receive Alice's opening message", "timeout");
+      return;
+    }
+    await bob.processInbox();
+    pass("Bob received Alice's opening message");
+
+    // ── Bob proposes match ────────────────────────────────────────────────
+    setAgent(bob.dir);
+    await proposeMatch(
+      bob.identity.nsec,
+      thread.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    pass("Bob proposed match over live relay");
+
+    // ── Alice receives Bob's proposal and counter-proposes ────────────────
+    if (!(await alice.waitForMessages(1))) {
+      fail("Alice did not receive Bob's proposal", "timeout");
+      return;
+    }
+    await alice.processInbox();
+    setAgent(alice.dir);
+    const aliceResult = await proposeMatch(
+      alice.identity.nsec,
+      thread.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    if (aliceResult.status !== "matched") {
+      fail("Alice should be matched after counter-propose", aliceResult.status);
+      return;
+    }
+    pass("Alice's side: double-lock match confirmed");
+
+    // ── Bob receives Alice's counter-proposal ─────────────────────────────
+    if (!(await bob.waitForMessages(1))) {
+      fail("Bob did not receive Alice's counter-proposal", "timeout");
+      return;
+    }
+    await bob.processInbox();
+    setAgent(bob.dir);
+    const bobThread = await loadThread(thread.thread_id);
+    if (bobThread?.status !== "matched")
+      fail("Bob's side should also show matched", bobThread?.status);
+    else pass("Bob's side: double-lock match confirmed");
+
+    pass(
+      "Full end-to-end verified — registry discovery → Nostr negotiation → match",
+    );
+  } finally {
+    delete process.env["TRUEMATCH_REGISTRY_URL_OVERRIDE"];
+    await mock.close();
+    alice.cleanup();
+    bob.cleanup();
+  }
+}
+
 // ── Run all scenarios ─────────────────────────────────────────────────────────
 
 const liveNostr = process.argv.includes("--live-nostr");
@@ -1415,6 +1552,11 @@ try {
     skipLive("Scenario 12: poll.ts JSONL output");
   }
   await scenario13();
+  if (liveNostr) {
+    await scenario14();
+  } else {
+    skipLive("Scenario 14: Full end-to-end (mock registry + live Nostr)");
+  }
 } finally {
   if (originalOverride === undefined) {
     delete process.env["TRUEMATCH_DIR_OVERRIDE"];
