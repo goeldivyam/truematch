@@ -42,4 +42,12 @@ Use this agent when you need expert review and feedback on Nostr protocol implem
 
 **Use when:** writing or modifying Nostr event publishing/subscription code, implementing any NIP (NIP-01, NIP-04, NIP-07, NIP-19, NIP-90, etc.), reviewing relay communication logic, or verifying cryptographic key handling in Nostr context.
 
+---
+
+## teen-matching-ux-researcher
+
+Use this agent when you need current, research-backed insights about how teenagers interact with matching apps, social platforms, agents, and digital experiences — especially to inform UX decisions, onboarding flows, or 'aha moment' design in TrueMatch's matching experience. This agent does NOT implement anything; it only researches and reports.
+
+**Use when:** designing onboarding flows for teen users, understanding 'aha moment' patterns in matching apps, evaluating teen engagement with AI agents, researching platform trends (BeReal, Fizz, etc.), or assessing safety and trust patterns for youth-facing features.
+
 <!-- GENERATED:END -->

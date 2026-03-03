@@ -2,6 +2,19 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import {
+  loadSignals,
+  saveSignals,
+  pickPendingSignal,
+  buildSignalInstruction,
+  recordSignalDelivered,
+} from "./signals.js";
+import type { ObservationSummary } from "./types.js";
+
+const TRUEMATCH_DIR = join(homedir(), ".truematch");
+const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
+const PREFERENCES_FILE = join(TRUEMATCH_DIR, "preferences.json");
+const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 
 /**
  * OpenClaw plugin entry point.
@@ -11,15 +24,23 @@ import { homedir } from "node:os";
  *
  * Hooks registered:
  *   gateway:startup  — detects first-run and missing preferences at boot
+ *   agent:bootstrap  — injects observation signal into Claude's context when confidence grows
  *   command:new      — on /new: runs setup, preferences, or observation update
  *
  * Tools registered:
  *   truematch_update_prefs — handles /truematch-prefs slash command (non-observational)
  */
 
-const TRUEMATCH_DIR = join(homedir(), ".truematch");
-const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
-const PREFERENCES_FILE = join(TRUEMATCH_DIR, "preferences.json");
+function loadObservation(): ObservationSummary | null {
+  if (!existsSync(OBSERVATION_FILE)) return null;
+  try {
+    return JSON.parse(
+      readFileSync(OBSERVATION_FILE, "utf8"),
+    ) as ObservationSummary;
+  } catch {
+    return null;
+  }
+}
 
 interface PluginEvent {
   type: string;
@@ -27,10 +48,15 @@ interface PluginEvent {
   messages: string[];
 }
 
+/** Returned from hooks that need to inject into Claude's context (agent:bootstrap). */
+interface PluginContextReturn {
+  prependContext?: string;
+}
+
 interface PluginAPI {
   registerHook(
     event: string,
-    handler: (event: PluginEvent) => void,
+    handler: (event: PluginEvent) => void | PluginContextReturn,
     meta?: { name?: string; description?: string },
   ): void;
   registerTool(tool: {
@@ -233,6 +259,50 @@ export default {
         name: "TrueMatch startup check",
         description:
           "Detects whether TrueMatch setup and preferences are configured",
+      },
+    );
+
+    // ── Hook: agent:bootstrap ─────────────────────────────────────────────────
+    // Fires when Claude's system prompt is being assembled for a new session.
+    // Returns { prependContext } to inject an observation signal into Claude's context.
+    // This is the correct injection point — command:new messages go to the user;
+    // agent:bootstrap content goes into Claude's context directly.
+    //
+    // Signal conditions (psychologist + teen researcher findings):
+    //   - Minimum 2 prior conversations before first signal
+    //   - Minimum 5-day quiet period between signals for the same dimension
+    //   - Confidence must have grown ≥ 0.15 since last signal
+    //   - One signal per session — pick the dimension with the largest growth delta
+    //   - Signal state is written BEFORE returning (prevents re-fire on crash)
+    api.registerHook(
+      "agent:bootstrap",
+      (): void | PluginContextReturn => {
+        const obs = loadObservation();
+        if (!obs) return;
+
+        const signals = loadSignals();
+        const pending = pickPendingSignal(obs, signals);
+        if (!pending) return;
+
+        // Write state BEFORE returning — prevents re-fire if session crashes after injection
+        const updated = recordSignalDelivered(
+          signals,
+          pending.dimension,
+          pending.confidence,
+        );
+        saveSignals(updated);
+
+        return {
+          prependContext: buildSignalInstruction(
+            pending.dimension,
+            pending.confidence,
+          ),
+        };
+      },
+      {
+        name: "TrueMatch observation signal",
+        description:
+          "Injects a natural observation note into Claude's context when confidence on a dimension has grown meaningfully",
       },
     );
 

@@ -133,6 +133,30 @@ export interface MatchNarrative {
   confidence_summary: string;
 }
 
+// ── Observation signals ───────────────────────────────────────────────────────
+
+export type DimensionKey =
+  | "attachment"
+  | "core_values"
+  | "communication"
+  | "emotional_regulation"
+  | "humor"
+  | "life_velocity"
+  | "dealbreakers";
+
+export interface DimensionSignalState {
+  /** Confidence value at the time the signal was last delivered to Claude. */
+  last_signaled_confidence: number;
+  /** ISO 8601 — when the signal was last injected into Claude's context. */
+  signaled_at: string;
+}
+
+/** Persisted in ~/.truematch/signals.json — tracks when each dimension was last surfaced. */
+export interface SignalsFile {
+  schema_version: 1;
+  per_dimension: Partial<Record<DimensionKey, DimensionSignalState>>;
+}
+
 // ── Persisted state files ─────────────────────────────────────────────────────
 
 // ~/.truematch/identity.json
@@ -146,6 +170,9 @@ export type ObservationFile = ObservationSummary;
 
 // ~/.truematch/preferences.json
 export type PreferencesFile = UserPreferences;
+
+// ~/.truematch/signals.json
+export type SignalsStateFile = SignalsFile;
 
 // ~/.truematch/threads/<thread_id>.json
 export type ThreadFile = NegotiationState;

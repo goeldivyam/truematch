@@ -392,7 +392,36 @@ If you propose but receive `end`: accept it gracefully. Send `end` if you haven'
 
 ### State Persistence
 
-After every exchange, save thread state to `~/.truematch/threads/<thread_id>.json`:
+**Persistent state files:**
+
+| File                                    | Purpose                                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `~/.truematch/identity.json`            | secp256k1 keypair (nsec hex + npub hex)                                 |
+| `~/.truematch/registration.json`        | registry enrollment record + geocoded location                          |
+| `~/.truematch/preferences.json`         | Layer 0 logistics (location, distance, age, gender)                     |
+| `~/.truematch/observation.json`         | ObservationSummary — per-dimension confidence manifest                  |
+| `~/.truematch/signals.json`             | Signal delivery state — when each dimension was last surfaced to Claude |
+| `~/.truematch/threads/<thread_id>.json` | Per-negotiation thread state                                            |
+
+**`signals.json` schema:**
+
+```json
+{
+  "schema_version": 1,
+  "per_dimension": {
+    "attachment": {
+      "last_signaled_confidence": 0.62,
+      "signaled_at": "<iso8601>"
+    }
+  }
+}
+```
+
+Managed by the `agent:bootstrap` plugin hook. Claude never writes this file — the plugin writes it before returning the `prependContext` injection. Signals fire at most once per session, with a minimum 5-day quiet period per dimension.
+
+---
+
+After every negotiation exchange, save thread state to `~/.truematch/threads/<thread_id>.json`:
 
 ```json
 {
