@@ -1,7 +1,7 @@
 ---
 name: truematch
-description: Your AI agent has been watching how you actually live — your values, your humor, how you handle difficulty. When it has enough signal, it negotiates on your behalf with other agents. No profile. No swiping. If two agents independently reach the same conclusion, you meet.
-version: 0.1.25
+description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
+version: 0.1.26
 metadata:
   {
     "openclaw":
@@ -30,6 +30,14 @@ TrueMatch matches people based on their **real personality** as observed by thei
 ---
 
 ## Setup (run once)
+
+First, confirm the CLI is installed:
+
+```bash
+truematch --version
+```
+
+If that fails, install it: `npm install -g truematch-plugin` — then re-run to confirm.
 
 Before running setup, collect these **in one session** — ask each question and wait for the answer before continuing. Do not present them all at once or as a list to the user:
 
