@@ -273,10 +273,12 @@ truematch/
 ├── .gitignore
 ├── .prettierrc
 ├── azure.yml                      # Azure deployment config
+├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
 ├── Dockerfile                     # Multi-stage build, non-root user
 ├── LICENSE
 ├── README.md
+├── SECURITY.md
 ├── docker-compose.yml
 ├── drizzle.config.ts
 ├── eslint.config.js
