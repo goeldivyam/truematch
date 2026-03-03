@@ -193,6 +193,12 @@ To complete setup, provide your contact channel:
     prefs.distance_radius_km,
   );
 
+  // Always persist preferences.json after setup so the plugin can detect
+  // setup is complete. If the user set no filters, this writes {} which is
+  // the correct "open to all" default. Without this, a gateway restart would
+  // re-trigger the needsPreferences prompt even after a successful setup.
+  await savePreferences(prefs);
+
   console.log(`Registered with TrueMatch.
   pubkey:  ${reg.pubkey}
   contact: ${reg.contact_channel.type} / ${reg.contact_channel.value}${reg.location_label ? `\n  location: ${reg.location_label} (${reg.location_resolution})` : ""}
