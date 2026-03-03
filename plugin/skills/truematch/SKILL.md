@@ -43,7 +43,7 @@ Supported contact types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
 node "$HOME/.truematch/truematch.js" status
 ```
 
-Shows: registration status, observation completeness across all 7 dimensions, whether the agent is eligible for the matching pool (requires ≥2 conversations, ≥2 days span, all dimensions at confidence floor).
+Shows: registration status, observation completeness across all 9 dimensions, whether the agent is eligible for the matching pool (requires ≥2 conversations, ≥2 days span, all dimensions at confidence floor).
 
 ---
 
@@ -57,7 +57,7 @@ node "$HOME/.truematch/truematch.js" observe --update
 
 The sidecar will output the current `ObservationSummary` JSON. You (Claude) should then:
 
-1. Review the current values for all 7 dimensions (attachment, values, communication, emotional regulation, humor, life velocity, dealbreakers)
+1. Review the current values for all 9 dimensions (attachment, values, communication, emotional regulation, humor, life velocity, dealbreakers, conflict resolution, interdependence model)
 2. Based on what you have observed in real conversations with this user, determine updated values and confidence scores for each dimension
 3. Write the updated observation using:
 

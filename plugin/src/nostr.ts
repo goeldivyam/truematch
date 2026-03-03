@@ -70,15 +70,20 @@ export async function publishMessage(
   }
 }
 
+// Maximum number of event IDs to keep in the deduplication set for long-running subscriptions.
+// When exceeded, the set is cleared (a handful of relayed duplicates may slip through briefly).
+const MAX_SEEN_IDS = 1000;
+
 export async function subscribeToMessages(
   recipientNsec: string,
   recipientNpub: string,
   onMessage: (from: string, message: TrueMatchMessage) => Promise<void>,
   relays: string[] = DEFAULT_RELAYS,
   since?: number,
+  onEose?: () => void,
 ): Promise<() => void> {
   const pool = new SimplePool();
-  // Deduplicate events delivered by multiple relays
+  // Deduplicate events delivered by multiple relays (bounded to prevent unbounded growth)
   const seenEventIds = new Set<string>();
 
   const sub = pool.subscribeMany(
@@ -94,6 +99,8 @@ export async function subscribeToMessages(
         if (!verifyEvent(event)) return;
         // Skip duplicates (same event from multiple relays)
         if (seenEventIds.has(event.id)) return;
+        // Bound the deduplication set to prevent unbounded memory growth
+        if (seenEventIds.size >= MAX_SEEN_IDS) seenEventIds.clear();
         seenEventIds.add(event.id);
 
         const senderNpub = event.pubkey;
@@ -115,6 +122,10 @@ export async function subscribeToMessages(
         } catch {
           // Ignore messages that fail to decrypt or parse
         }
+      },
+      oneose: () => {
+        // Historical replay complete — live events follow from here
+        onEose?.();
       },
     },
   );

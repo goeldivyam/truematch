@@ -16,6 +16,10 @@ const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
 // Per spec: threads with no response expire after 72 hours
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
+// Maximum active threads allowed from a single unknown peer pubkey.
+// Prevents disk exhaustion from arbitrary senders spamming new thread_ids.
+const MAX_INBOUND_THREADS_PER_PEER = 3;
+
 // Maximum rounds before hard termination
 export const MAX_ROUNDS = 10;
 
@@ -130,7 +134,15 @@ export async function receiveMessage(
 
   let state = await loadThread(thread_id);
   if (!state) {
-    // First message from peer — create a new thread
+    // First message from this peer on this thread_id.
+    // Guard against DoS: count existing active threads from this peer.
+    const existing = await listActiveThreads();
+    const peerThreadCount = existing.filter(
+      (t) => t.peer_pubkey === peerNpub && !t.initiated_by_us,
+    ).length;
+    if (peerThreadCount >= MAX_INBOUND_THREADS_PER_PEER) return null;
+
+    // Create a new inbound thread
     state = {
       thread_id,
       peer_pubkey: peerNpub,
