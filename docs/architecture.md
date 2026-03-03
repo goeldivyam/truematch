@@ -260,12 +260,12 @@ truematch/
 │   │       └── SKILL.md           # /truematch-prefs slash command (non-observed preferences update)
 │   ├── src/
 │   │   ├── handoff.test.ts        # Tests: notification context, advanceHandoff rounds, handoff state
-│   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management
-│   │   ├── identity.ts            # secp256k1 keypair generation and persistence
+│   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management; uses getTrueMatchDir() dynamically
+│   │   ├── identity.ts            # secp256k1 keypair generation and persistence; exports getTrueMatchDir() (respects TRUEMATCH_DIR_OVERRIDE)
 │   │   ├── index.ts               # CLI entry point — match, observe, handoff, register subcommands
 │   │   ├── negotiation.test.ts    # Tests: state machine, double-lock, round cap, sender validation
-│   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
-│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication)
+│   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap); uses getTrueMatchDir() dynamically
+│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication); publishMessage is a no-op when relays=[]
 │   │   ├── observation.test.ts    # Tests: isEligible, isStale, eligibilityReport (9-dimension model)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (9 dimension floors)
 │   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks
@@ -277,7 +277,8 @@ truematch/
 │   │   ├── test-setup.ts          # Vitest setup — redirects HOME to a per-run temp directory
 │   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
-│   ├── package.json
+│   ├── package.json               # v0.1.3
+│   ├── simulate.mjs               # E2E simulation script — 4 scenarios (no live relays); uses TRUEMATCH_DIR_OVERRIDE for isolation
 │   ├── tsconfig.json
 │   └── vitest.config.ts           # Plugin test config — includes src/**/*.test.ts
 ├── skill/
