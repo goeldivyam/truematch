@@ -210,6 +210,11 @@ export async function proposeMatch(
 ): Promise<NegotiationState> {
   const state = await loadThread(thread_id);
   if (!state) throw new Error(`Thread ${thread_id} not found`);
+  if (state.status !== "in_progress") {
+    throw new Error(
+      `Thread ${thread_id} is not in progress (status: ${state.status})`,
+    );
+  }
   if (state.we_proposed)
     throw new Error(`Already proposed on thread ${thread_id}`);
 

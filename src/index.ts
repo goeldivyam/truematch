@@ -66,7 +66,7 @@ app.get("/.well-known/agent-card.json", (c) => {
     truematch: {
       nostrPubkey: null,
       matchContext: "dating-v1",
-      protocolVersion: "1.0",
+      protocolVersion: "2.0",
     },
   });
 });

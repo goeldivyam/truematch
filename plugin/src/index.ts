@@ -436,7 +436,7 @@ async function cmdMatch(): Promise<void> {
     );
     if (state.status === "matched") {
       console.log("MATCH CONFIRMED (double-lock cleared).");
-      console.log("Headline:", state.match_narrative?.headline);
+      console.log("Headline:", state.match_narrative?.headline ?? "(pending)");
     } else {
       console.log(
         `Match proposal sent. Waiting for peer's proposal (thread ${thread_id.slice(0, 8)}...)`,
