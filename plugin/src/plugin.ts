@@ -375,7 +375,7 @@ export default {
               `3. Age range — both min and max optional. Accept "no preference" immediately.\n` +
               `4. Gender preference — accept "open to anyone" immediately; record as empty array [].\n\n` +
               `Do NOT push back on open/no-preference answers. Do NOT re-ask.\n\n` +
-              `Then ask: "What's the best way to reach you when there's a match? ` +
+              `Then ask: "If there's a match, how would you want the other person to be able to reach you? ` +
               `(email, Discord, Telegram, WhatsApp, or iMessage)"\n\n` +
               `Run setup:\n` +
               `  node "$HOME/.truematch/truematch.js" setup --contact-type <type> --contact-value <value>\n` +
