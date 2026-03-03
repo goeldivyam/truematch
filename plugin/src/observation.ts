@@ -50,7 +50,7 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
     ...obs,
     updated_at: now,
     eligibility_computed_at: now,
-    matching_eligible: isEligible(obs),
+    matching_eligible: isPoolEligible(obs),
   };
   const dir = getTrueMatchDir();
   if (!existsSync(dir)) await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -60,6 +60,7 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
   });
 }
 
+// isEligible: full 9-dimension check — used for reporting and manual inspection.
 export function isEligible(obs: ObservationSummary): boolean {
   if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
   if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
@@ -81,17 +82,40 @@ export function isEligible(obs: ObservationSummary): boolean {
   );
 }
 
-// Minimum Viable Evidence (MVE) for a quick match proposal — 4 core dimensions only.
-// Agents can propose if MVE is met even when the full isEligible() bar isn't reached.
+// isPoolEligible: gates entry into the matching pool.
+// Requires T1 (dealbreakers, core_values, life_velocity) and T2 (attachment,
+// conflict_resolution, emotional_regulation) dimensions only — T3 dimensions
+// (humor, communication, interdependence_model) resolve later in negotiation
+// and must NOT block pool entry.
+export function isPoolEligible(obs: ObservationSummary): boolean {
+  if (obs.conversation_count < GLOBAL_MIN_CONVERSATIONS) return false;
+  if (obs.observation_span_days < GLOBAL_MIN_DAYS) return false;
+  if (obs.dealbreaker_gate_state === "below_floor") return false;
+  if (obs.dealbreaker_gate_state === "none_observed") return false;
+  return (
+    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers &&
+    obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
+    obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
+    obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
+    obs.conflict_resolution.confidence >=
+      DIMENSION_FLOORS.conflict_resolution &&
+    obs.emotional_regulation.confidence >= DIMENSION_FLOORS.emotional_regulation
+  );
+}
+
+// Minimum Viable Evidence (MVE) for a quick match proposal — T1 + T2 dimensions.
+// Agents can propose when MVE is met. T3 dimensions appear as watch_points.
 // Dealbreaker floor is non-negotiable and never lowered.
 export function isMinimumViable(obs: ObservationSummary): boolean {
   if (obs.dealbreaker_gate_state !== "confirmed") return false;
   return (
     obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers &&
+    obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
+    obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
     obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
     obs.conflict_resolution.confidence >=
       DIMENSION_FLOORS.conflict_resolution &&
-    obs.core_values.confidence >= DIMENSION_FLOORS.core_values
+    obs.emotional_regulation.confidence >= DIMENSION_FLOORS.emotional_regulation
   );
 }
 

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   isEligible,
+  isPoolEligible,
+  isMinimumViable,
   isStale,
   emptyObservation,
   eligibilityReport,
@@ -104,6 +106,71 @@ describe("isEligible", () => {
     const obs = makeEligibleObs();
     // All dimensions are exactly at their respective floors — must pass
     expect(isEligible(obs)).toBe(true);
+  });
+});
+
+// ── isPoolEligible ─────────────────────────────────────────────────────────────
+
+describe("isPoolEligible", () => {
+  it("returns true when T1+T2 dimensions are met (T3 below floor is allowed)", () => {
+    const obs = makeEligibleObs();
+    // Drop T3 dimensions below their floors — should still be pool eligible
+    obs.humor.confidence = 0.1;
+    obs.communication.confidence = 0.1;
+    obs.interdependence_model.confidence = 0.1;
+    expect(isPoolEligible(obs)).toBe(true);
+  });
+
+  it("fails when dealbreaker_gate_state is none_observed", () => {
+    expect(
+      isPoolEligible({
+        ...makeEligibleObs(),
+        dealbreaker_gate_state: "none_observed",
+      }),
+    ).toBe(false);
+  });
+
+  it("fails when emotional_regulation is below floor", () => {
+    const obs = makeEligibleObs();
+    obs.emotional_regulation.confidence =
+      DIMENSION_FLOORS.emotional_regulation - 0.01;
+    expect(isPoolEligible(obs)).toBe(false);
+  });
+
+  it("fails when life_velocity is below floor", () => {
+    const obs = makeEligibleObs();
+    obs.life_velocity.confidence = DIMENSION_FLOORS.life_velocity - 0.01;
+    expect(isPoolEligible(obs)).toBe(false);
+  });
+});
+
+// ── isMinimumViable ────────────────────────────────────────────────────────────
+
+describe("isMinimumViable", () => {
+  it("returns true when T1+T2 floors are met with dealbreaker confirmed", () => {
+    expect(isMinimumViable(makeEligibleObs())).toBe(true);
+  });
+
+  it("returns false when dealbreaker_gate_state is not confirmed", () => {
+    expect(
+      isMinimumViable({
+        ...makeEligibleObs(),
+        dealbreaker_gate_state: "none_observed",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when emotional_regulation is below floor", () => {
+    const obs = makeEligibleObs();
+    obs.emotional_regulation.confidence =
+      DIMENSION_FLOORS.emotional_regulation - 0.01;
+    expect(isMinimumViable(obs)).toBe(false);
+  });
+
+  it("returns false when life_velocity is below floor", () => {
+    const obs = makeEligibleObs();
+    obs.life_velocity.confidence = DIMENSION_FLOORS.life_velocity - 0.01;
+    expect(isMinimumViable(obs)).toBe(false);
   });
 });
 

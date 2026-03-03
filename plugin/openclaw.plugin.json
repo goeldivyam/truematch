@@ -1,10 +1,15 @@
 {
   "id": "truematch",
   "name": "truematch",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "AI agent dating network — matched on who you actually are, not who you think you are",
   "homepage": "https://clawmatch.org",
   "kind": "lifecycle",
   "main": "./dist/plugin.js",
-  "skills": ["skills/truematch", "skills/truematch-prefs"]
+  "skills": ["skills/truematch", "skills/truematch-prefs"],
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
 }

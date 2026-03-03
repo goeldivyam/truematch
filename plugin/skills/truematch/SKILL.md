@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.10
+version: 0.1.11
 metadata:
   openclaw:
     emoji: "💑"
@@ -27,11 +27,16 @@ Supported contact types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
 
 If identity already exists, this re-registers (upsert) without changing the keypair. After setup, generate the observation summary (see below), then start matching.
 
-**Start acknowledgment to user (2–3 sentences, 4 elements required):**
+**Start acknowledgment to user:**
 
-> "I've started looking for a match for you. It could take days or a few weeks — I'll be quiet until I have something worth your attention, and nothing is final until you say so. If you want to check in anytime, just ask."
+Tell the user you've started looking. Keep it to 2–3 sentences, first-person, warm. Four things must come through — not as a list, not as a formula, but woven naturally into whatever you actually say:
 
-The four required elements: (1) what you're doing, (2) what you will NOT do (no surprises, no sharing without their confirmation), (3) when they'll hear from you next (only on a confirmed match — set time-horizon expectations to reduce anxiety during the quiet period), (4) pull-check-in invite ("just ask" removes anxiety about the silence). Do not explain the process. Do not list steps. First-person, warm.
+1. What you're doing (looking for someone)
+2. What you will NOT do (no surprises, nothing shared without their say-so)
+3. When they'll hear from you (only when there's something real — be honest about the timeline, it could be weeks)
+4. That they can check in anytime ("just ask" removes anxiety about the silence)
+
+Anchor it to something you actually know about this person — their values, what they care about, what kind of connection they seem to want. The acknowledgment should sound like you, not like onboarding copy. Do not explain the protocol. Do not list steps.
 
 ---
 
@@ -166,17 +171,19 @@ When `match --status` shows `status: "matched"`, notify the user. This is the on
 
 **Consent window:** The user has 72 hours to respond to the curiosity question before the match expires silently. The clock starts from your first notification message — not from when the double-lock was confirmed. If the user doesn't respond within 72 hours, the handoff expires with no further action.
 
-**Format (WhatsApp conversational text — 3 layers):**
+**Format — deliver this as a single, compact message (not a multi-turn debrief). Three elements:**
 
-1. **Recognition hook** — one behavioral observation about the user (from your highest-salience dimension — the dimension they would most recognize as characteristic of themselves, not necessarily your highest-confidence one) that explains why this match is worth the interruption. Draw from what you actually know about them — attachment style, values, how they handle conflict. Avoid `emotional_regulation` as the hook anchor unless it is unmistakably salient: users rarely experience their stress-response patterns as their most defining trait. This must come first and feel personal, not algorithmic. Anchor to a real pattern you have observed — name it specifically.
-2. **Headline** — one evocative sentence from `match_narrative.headline`. Grounded. No superlatives.
-3. **Curiosity question** — "What's one thing you'd want to know about them?" This is simultaneously the consent signal, the icebreaker seed for Round 2, and a micro-investment trigger. Do NOT use "Want to see more?"
+1. **Recognition hook** — one behavioral observation about the user (from your highest-salience dimension — the dimension they would most recognize as characteristic of themselves, not necessarily your highest-confidence one). Draw from what you actually know about them — attachment style, values, how they handle conflict. Avoid `emotional_regulation` as the hook anchor unless it is unmistakably salient: users rarely experience their stress-response patterns as their most defining trait. Anchor to a real pattern — name it specifically. This must feel personal, not algorithmic.
+
+2. **Bilateral convergence + headline** — tell the user, in plain language, that two independent AI advocates each proposed this pairing without coordinating. This is the emotional core of TrueMatch and the user should understand it: it is not an algorithm score, it is two separate judgements that happened to agree. Then deliver one evocative sentence from `match_narrative.headline`. Grounded. No superlatives. Do NOT keep the bilateral convergence hidden in your reasoning — surface it.
+
+3. **Curiosity question** — "What's one thing you'd want to know about them?" This is simultaneously the consent signal, the icebreaker seed for Round 2, and a micro-investment trigger. Do NOT use "Want to see more?" Do NOT use a fixed formula — let the question land naturally after the recognition hook and convergence framing.
 
 Example:
 
-> "The way you talk about your co-founders — loyalty before equity every time — I kept that in mind. [headline]. What's one thing you'd want to know about them?"
+> "The way you talk about your co-founders — loyalty before equity every time — I kept that in mind. My counterpart did too: two agents, no coordination, same person. [headline]. What's one thing you'd want to know about them?"
 
-Do NOT use: percentages, "compatibility scores", "our algorithm", superlatives. Keep it under 4 sentences.
+Do NOT use: percentages, "compatibility scores", "our algorithm", superlatives. Do NOT use the phrase "watch points" — that is internal language. Keep it under 4 sentences.
 
 After their answer (however they answer it), record consent and advance the handoff:
 

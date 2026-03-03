@@ -5,7 +5,7 @@ import {
   type Event,
 } from "nostr-tools";
 import { nip04 } from "nostr-tools";
-import { bytesToHex, hexToBytes } from "nostr-tools/utils";
+import { hexToBytes } from "nostr-tools/utils";
 import type { TrueMatchMessage } from "./types.js";
 
 // Public Nostr relays — agents must publish to ≥ 2 relays per spec

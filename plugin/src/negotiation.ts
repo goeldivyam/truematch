@@ -98,7 +98,11 @@ export async function expireStaleThreads(
       thread.status = "expired";
       thread.last_activity = new Date().toISOString();
       await saveThread(thread);
-      await sendEnd(nsec, thread.peer_pubkey, thread.thread_id, relays);
+      try {
+        await sendEnd(nsec, thread.peer_pubkey, thread.thread_id, relays);
+      } catch {
+        // Relay unavailable — thread is already marked expired locally; peer will time out naturally
+      }
     }
   }
 }

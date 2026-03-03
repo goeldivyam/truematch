@@ -62,7 +62,7 @@ const DIMENSION_LABELS: Record<DimensionKey, string> = {
   emotional_regulation: "how you handle stress and difficult moments",
   humor: "your sense of humor and levity",
   life_velocity: "where you are in life and where you're headed",
-  dealbreakers: "what you need in a relationship",
+  dealbreakers: "what you won't compromise on in how you're treated",
   conflict_resolution:
     "how you navigate disagreement and repair after conflict",
   interdependence_model:

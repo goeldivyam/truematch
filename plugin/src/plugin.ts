@@ -1,7 +1,5 @@
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getTrueMatchDir } from "./identity.js";
 import {
   loadSignals,
@@ -16,7 +14,13 @@ import {
   buildMatchNotificationContext,
   getActiveHandoffContext,
 } from "./handoff.js";
-import type { ObservationSummary } from "./types.js";
+import { emptyObservation, eligibilityReport } from "./observation.js";
+import {
+  loadPreferences,
+  savePreferences,
+  formatPreferences,
+} from "./preferences.js";
+import type { ObservationSummary, UserPreferences } from "./types.js";
 
 /**
  * OpenClaw plugin entry point.
@@ -115,60 +119,12 @@ const pluginState = {
   needsPreferences: false,
 };
 
-interface StoredPreferences {
-  gender_preference?: string[];
-  location?: string;
-  distance_radius_km?: number;
-  age_range?: { min?: number; max?: number };
-}
-
-function loadPrefs(): StoredPreferences {
-  const preferencesFile = join(getTrueMatchDir(), "preferences.json");
-  if (!existsSync(preferencesFile)) return {};
-  try {
-    return JSON.parse(
-      readFileSync(preferencesFile, "utf8"),
-    ) as StoredPreferences;
-  } catch {
-    return {};
-  }
-}
-
-function savePrefs(prefs: StoredPreferences): void {
-  const preferencesFile = join(getTrueMatchDir(), "preferences.json");
-  writeFileSync(preferencesFile, JSON.stringify(prefs, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-}
-
-function formatPrefs(prefs: StoredPreferences): string {
-  const parts: string[] = [];
-  if (prefs.location) {
-    const radius =
-      prefs.distance_radius_km !== undefined
-        ? ` (within ${prefs.distance_radius_km} km)`
-        : " (anywhere)";
-    parts.push(`location: ${prefs.location}${radius}`);
-  }
-  if (prefs.age_range) {
-    const { min, max } = prefs.age_range;
-    if (min !== undefined && max !== undefined)
-      parts.push(`age: ${min}–${max}`);
-    else if (min !== undefined) parts.push(`age: ${min}+`);
-    else if (max !== undefined) parts.push(`age: up to ${max}`);
-  }
-  if (prefs.gender_preference?.length) {
-    parts.push(`gender: ${prefs.gender_preference.join(" or ")}`);
-  }
-  return parts.length ? parts.join(", ") : "none set";
-}
-
 /**
  * Parse simple key=value pairs from raw slash-command args.
  * Supports quoted values: location="New York, NY"
+ * Named parseSlashArgs to avoid shadowing node:util parseArgs.
  */
-function parseArgs(raw: string): Record<string, string> {
+function parseSlashArgs(raw: string): Record<string, string> {
   const result: Record<string, string> = {};
   const re = /(\w+)=(?:"([^"]*)"|(\S+))/g;
   let m: RegExpExecArray | null;
@@ -191,15 +147,15 @@ function parseArgs(raw: string): Record<string, string> {
  *   /truematch-prefs age_min=25 age_max=35    — age range (omit either for open-ended)
  *   /truematch-prefs gender=anyone            — any; or comma-separated: man,woman,nonbinary
  */
-function handleUpdatePrefs(rawArgs: string): string {
-  const prefs = loadPrefs();
+async function handleUpdatePrefs(rawArgs: string): Promise<string> {
+  const prefs = await loadPreferences();
   const trimmed = rawArgs.trim();
 
   if (!trimmed) {
     return (
       `Preferences mode. I won't read anything you say here as personality signal — ` +
       `this is purely logistics.\n\n` +
-      `Current preferences: ${formatPrefs(prefs)}\n\n` +
+      `Current preferences: ${formatPreferences(prefs)}\n\n` +
       `Update with: /truematch-prefs <field>=<value>\n` +
       `  location="City, Country"    where you're based\n` +
       `  distance=city               city (~50 km) | travel (~300 km) | anywhere\n` +
@@ -208,7 +164,7 @@ function handleUpdatePrefs(rawArgs: string): string {
     );
   }
 
-  const args = parseArgs(trimmed);
+  const args = parseSlashArgs(trimmed);
   let changed = false;
 
   if (args["location"] !== undefined) {
@@ -262,11 +218,11 @@ function handleUpdatePrefs(rawArgs: string): string {
     return `No recognized fields in args. Use: location, distance, age_min, age_max, gender.`;
   }
 
-  savePrefs(prefs);
+  await savePreferences(prefs);
 
   return (
     `Updated. I'm going back to regular conversation now — anything here is observations again.\n\n` +
-    `Current preferences: ${formatPrefs(prefs)}`
+    `Current preferences: ${formatPreferences(prefs)}`
   );
 }
 
@@ -275,7 +231,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.10",
+  version: "0.1.11",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -299,7 +255,7 @@ export default {
         required: [],
       },
       execute: async (_id, params) => {
-        const text = handleUpdatePrefs(params.command ?? "");
+        const text = await handleUpdatePrefs(params.command ?? "");
         return { content: [{ type: "text" as const, text }] };
       },
     });
@@ -446,26 +402,13 @@ export default {
           return;
         }
 
-        // Update observation summary from Claude's existing memory.
-        // Use an absolute path to the CLI entry point so this works regardless
-        // of whether the truematch bin is on PATH in Claude's process environment.
-        const cliPath = join(
-          dirname(fileURLToPath(import.meta.url)),
-          "index.js",
-        );
-        let output: string;
-        try {
-          output = execSync(
-            `${process.execPath} ${JSON.stringify(cliPath)} observe --update`,
-            { encoding: "utf8", timeout: 5000 },
-          );
-        } catch (err) {
-          // truematch CLI unavailable or not yet set up — skip gracefully
-          process.stderr.write(
-            `[TrueMatch] observe --update failed: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
-          return;
-        }
+        // Load the current observation summary directly from disk.
+        // No subprocess needed — the plugin runs in-process with the CLI.
+        const obs = loadObservation() ?? emptyObservation();
+        const report = eligibilityReport(obs);
+        const output =
+          `CURRENT OBSERVATION:\n${JSON.stringify(obs, null, 2)}\n\n` +
+          `ELIGIBILITY REPORT:\n${report}`;
 
         event.messages.push(
           `[TrueMatch] Session ended. Review the observation summary below and update it ` +

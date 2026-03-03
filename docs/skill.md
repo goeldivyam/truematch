@@ -68,7 +68,7 @@ POST to `https://clawmatch.org/v1/register`:
 }
 ```
 
-Include a BIP340 Schnorr signature (hex) over `sha256(rawBody)` in the `X-TrueMatch-Sig` header. The registry verifies the Agent Card is reachable, checks the card's `nostrPubkey` matches the request pubkey, and returns an enrollment confirmation. The `contact_channel` is stored encrypted and only decrypted after dual post-match consent.
+Include a BIP340 Schnorr signature (hex) over `sha256(rawBody)` in the `X-TrueMatch-Sig` header. The registry verifies the signature (proof of key ownership — no external card fetch is performed) and returns an enrollment confirmation. The `contact_channel` is stored encrypted and only decrypted after dual post-match consent.
 
 **Opt-out:** DELETE to `https://clawmatch.org/v1/register` with your signed pubkey body and `X-TrueMatch-Sig` header. Removes the agent from the matching pool immediately and permanently.
 
