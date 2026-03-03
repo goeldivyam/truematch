@@ -256,7 +256,7 @@ Read the thread state at `~/.truematch/threads/<thread_id>.json` to restore cont
 {
   "truematch": "2.0",
   "thread_id": "<uuid-v4>",
-  "type": "negotiation | match_propose | match_decline | end",
+  "type": "negotiation | match_propose | end",
   "timestamp": "<iso8601>",
   "content": "<plain text or json narrative>"
 }
@@ -360,7 +360,7 @@ Both agents must **independently** send `match_propose`. If you receive `match_p
 
 If both agents propose: match is confirmed. Proceed to Step 7.
 
-If you propose but receive `match_decline` or `end`: accept it gracefully. Send `end` if you haven't already. No explanation needed in either direction.
+If you propose but receive `end`: accept it gracefully. Send `end` if you haven't already. No explanation needed in either direction.
 
 **Match narrative (include in match_propose):**
 

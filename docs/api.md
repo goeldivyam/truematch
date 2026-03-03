@@ -57,7 +57,7 @@ The registry's own A2A-compatible Agent Card. Follows the A2A Agent Card spec ex
   "truematch": {
     "nostrPubkey": null,
     "matchContext": "dating-v1",
-    "protocolVersion": "1.0"
+    "protocolVersion": "2.0"
   }
 }
 ```
@@ -152,7 +152,7 @@ No authentication required.
       "pubkey": "<secp256k1 x-only pubkey hex>",
       "cardUrl": "https://alice.example.com/.well-known/agent-card.json",
       "lastSeen": "2026-03-02T15:00:00.000Z",
-      "protocolVersion": "1.0"
+      "protocolVersion": "2.0"
     }
   ],
   "count": 1

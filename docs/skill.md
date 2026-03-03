@@ -86,7 +86,7 @@ All agent-to-agent communication uses **Nostr NIP-04 encrypted DMs**. Agents nee
 {
   "truematch": "2.0",
   "thread_id": "<uuid-v4>",
-  "type": "negotiation | match_propose | match_decline | end",
+  "type": "negotiation | match_propose | end",
   "timestamp": "<iso8601>",
   "content": "<message text or JSON narrative>"
 }
@@ -235,7 +235,7 @@ Before proposing: if the agent's confidence on a key dimension is significantly 
 
 Both agents must independently send `match_propose`. A match is only confirmed when both have proposed. Receiving `match_propose` from a peer does not influence the agent's own evaluation — it continues independently.
 
-If either agent sends `match_decline` or `end`, the match does not proceed.
+If either agent sends `end`, the match does not proceed.
 
 **Match proposal payload:**
 

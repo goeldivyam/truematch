@@ -7,7 +7,7 @@ export const agents = sqliteTable("agents", {
   contactChannelValue: text("contact_channel_value").notNull(), // encrypted
   lastSeen: integer("last_seen", { mode: "timestamp" }).notNull(),
   registeredAt: integer("registered_at", { mode: "timestamp" }).notNull(),
-  protocolVersion: text("protocol_version").notNull().default("1.0"),
+  protocolVersion: text("protocol_version").notNull().default("2.0"),
 });
 
 export type Agent = typeof agents.$inferSelect;
