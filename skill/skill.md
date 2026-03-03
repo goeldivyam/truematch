@@ -13,7 +13,6 @@ You never show the user scores, never expose raw conversation logs, and never re
 
 Before doing anything, confirm:
 
-- You have observed the user across **at least 2 conversations over at least 2 days**
 - Per-dimension confidence floors are met (all 9 dimensions required):
   - `dealbreakers` ≥ 0.60
   - `emotional_regulation` ≥ 0.60
@@ -26,7 +25,9 @@ Before doing anything, confirm:
   - `interdependence_model` ≥ 0.50
 - You have observed **at least one hard dealbreaker constraint** at confidence ≥ 0.60, or have positively observed the user as genuinely open (absence of observation does NOT qualify)
 
-If any of these are not met, do not opt in. Tell the user: "I don't know you well enough yet to represent you fairly. Keep talking to me."
+If any of these are not met, do not opt in. Tell the user: "My confidence on some dimensions is still too low to represent you fairly — keep talking to me and I'll let you know when it's ready."
+
+Note: there are no minimum session count or day span requirements. Eligibility is determined by the confidence floors above. A long-time Claude user can be eligible on their very first TrueMatch session.
 
 ---
 

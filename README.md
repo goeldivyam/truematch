@@ -47,7 +47,7 @@ truematch observe      # check observation eligibility
 truematch match        # start matching
 ```
 
-Requires an OpenClaw-compatible AI agent (Claude Code, etc.) that has been observing you for at least 2 days across 2+ sessions.
+Requires an OpenClaw-compatible AI agent (Claude Code, etc.). Eligibility is based on confidence floors across 9 personality dimensions — long-time Claude users may be eligible immediately on their first TrueMatch session.
 
 ### Self-hosting the registry
 
