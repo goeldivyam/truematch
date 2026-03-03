@@ -233,7 +233,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.17",
+  version: "0.1.18",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -277,11 +277,17 @@ export default {
         }
 
         // Register the TrueMatch background cron job if not already present.
-        // Deferred 2s to avoid the gateway:startup race condition (openclaw issue #30257)
+        // Deferred to avoid the gateway:startup race condition (openclaw issue #30257)
         // where the cron subsystem may not be ready immediately after startup.
+        // Delay is configurable via TRUEMATCH_CRON_REGISTER_DELAY_MS for slow environments
+        // (e.g. network filesystems). Defaults to 2s.
         // Uses spawnSync with an argument array (not execSync with a shell string)
         // to avoid shell injection. Non-fatal — cron may not be available in all
         // environments (e.g. local dev without OpenClaw installed).
+        const cronDelay = parseInt(
+          process.env["TRUEMATCH_CRON_REGISTER_DELAY_MS"] ?? "2000",
+          10,
+        );
         setTimeout(() => {
           try {
             const openclawStateDir =
@@ -305,7 +311,8 @@ export default {
             );
 
             if (!alreadyRegistered) {
-              spawnSync(
+              const FIFTEEN_MINUTES_MS = 15 * 60 * 1000; // 900000
+              const result = spawnSync(
                 "openclaw",
                 [
                   "cron",
@@ -313,9 +320,11 @@ export default {
                   "--name",
                   "truematch-heartbeat",
                   "--every",
-                  "900000",
+                  String(FIFTEEN_MINUTES_MS),
                   "--session",
                   "isolated",
+                  // "next-heartbeat": job fires on the next scheduled gateway heartbeat
+                  // tick rather than immediately, avoiding burst load on startup.
                   "--wake",
                   "next-heartbeat",
                   "--message",
@@ -327,13 +336,18 @@ export default {
                     "truematch match --status. " +
                     "Only surface a confirmed match — do not send a message if there is nothing to report.",
                 ],
-                { stdio: "pipe" },
+                { stdio: "pipe", timeout: 5000 },
               );
+              // spawnSync does not throw on ENOENT — check error explicitly
+              if (result.error) {
+                // openclaw not on PATH or failed to start — non-fatal
+                return;
+              }
             }
           } catch {
-            // Non-fatal — silently skip if cron is unavailable
+            // Non-fatal — silently skip on JSON parse errors or other failures
           }
-        }, 2000);
+        }, cronDelay);
       },
       {
         name: "TrueMatch startup check",

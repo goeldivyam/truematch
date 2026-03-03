@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.17
+version: 0.1.18
 metadata:
   openclaw:
     emoji: "💑"
