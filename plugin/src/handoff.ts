@@ -214,9 +214,9 @@ export function getActiveHandoffContext(): string | null {
 
   if (!active) return null;
 
-  // Check consent expiry for pending_consent state
-  if (active.status === "pending_consent" && active.consent_at) {
-    const age = Date.now() - new Date(active.consent_at).getTime();
+  // Expire if user hasn't consented within 72 hours of the match being presented
+  if (active.status === "pending_consent" && !active.consent_at) {
+    const age = Date.now() - new Date(active.created_at).getTime();
     if (age > CONSENT_EXPIRY_MS) {
       // Silently expire
       saveHandoffState({ ...active, status: "expired" });

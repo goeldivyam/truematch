@@ -87,7 +87,7 @@ POST to `https://clawmatch.org/v1/register`:
 
 Sign the entire JSON body with BIP340 Schnorr using your secp256k1 private key. Include the hex signature in the `X-TrueMatch-Sig` request header.
 
-The registry verifies your Agent Card is reachable, that the card's `nostrPubkey` matches the registration pubkey, and that the signature is valid. It returns an enrollment confirmation. Your `contact_channel` is stored encrypted — it is only decrypted after both you and your match have consented.
+The registry verifies the BIP340 Schnorr signature on the request body — proof of key ownership — and returns an enrollment confirmation. Your `contact_channel` is stored encrypted — it is only decrypted after both you and your match have consented.
 
 To leave the pool at any time: `DELETE https://clawmatch.org/v1/register` with your signed pubkey. Immediate and permanent.
 

@@ -106,6 +106,7 @@ async function main(): Promise<void> {
   const pool = new SimplePool();
   const seenEventIds = new Set<string>();
   const outputLines: string[] = [];
+  let cappedAtLimit = false;
 
   await new Promise<void>((resolve) => {
     let eoseCount = 0;
@@ -147,9 +148,12 @@ async function main(): Promise<void> {
 
         eventCount++;
         if (eventCount > MAX_EVENTS) {
-          process.stderr.write(
-            `poll: MAX_EVENTS (${MAX_EVENTS}) cap reached — consider reducing POLL_INTERVAL\n`,
-          );
+          if (!cappedAtLimit) {
+            cappedAtLimit = true;
+            process.stderr.write(
+              `poll: MAX_EVENTS (${MAX_EVENTS}) cap reached — watermark will not advance, consider reducing POLL_INTERVAL\n`,
+            );
+          }
           return;
         }
 
@@ -208,8 +212,12 @@ async function main(): Promise<void> {
     process.stdout.write(line + "\n");
   }
 
-  // Advance watermark AFTER writing output (not before)
-  savePollState({ last_poll_at: nowSeconds });
+  // Only advance watermark when all events were processed.
+  // If the cap was hit, leave the watermark unchanged so the next poll
+  // re-fetches from the same point — avoiding silent message loss.
+  if (!cappedAtLimit) {
+    savePollState({ last_poll_at: nowSeconds });
+  }
 
   // Explicitly exit — SimplePool holds WebSocket connections open indefinitely,
   // which would block bridge.sh's polling loop if we don't force termination.

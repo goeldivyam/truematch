@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { gt } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { agents } from "../db/schema.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 export const agentsRoute = new Hono();
 
@@ -52,7 +53,7 @@ function haversineKm(
  * When query params are absent, all active agents are returned (requester
  * has no location preference or is open to anyone).
  */
-agentsRoute.get("/", async (c) => {
+agentsRoute.get("/", rateLimit, async (c) => {
   const latParam = c.req.query("lat");
   const lngParam = c.req.query("lng");
   const radiusParam = c.req.query("radius_km");

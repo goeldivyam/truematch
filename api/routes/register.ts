@@ -35,6 +35,7 @@ function isPrivateUrl(rawUrl: string): boolean {
   if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
     const a = parts[0] as number;
     const b = parts[1] as number;
+    if (a === 0) return true; // 0.0.0.0/8 IANA reserved
     if (a === 127) return true; // 127.0.0.0/8 loopback
     if (a === 10) return true; // 10.0.0.0/8 private
     if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
@@ -90,7 +91,9 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     typeof (contact_channel as Record<string, unknown>)["value"] !== "string" ||
     !CONTACT_TYPES.has(
       (contact_channel as Record<string, unknown>)["type"] as string,
-    )
+    ) ||
+    ((contact_channel as Record<string, unknown>)["value"] as string).length >
+      512
   ) {
     return c.json({ error: "Invalid contact_channel" }, 400);
   }
@@ -104,10 +107,10 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
   }
   if (
     rawDistance !== undefined &&
-    (typeof rawDistance !== "number" || rawDistance <= 0)
+    (typeof rawDistance !== "number" || rawDistance <= 0 || rawDistance > 20000)
   ) {
     return c.json(
-      { error: "distance_radius_km must be a positive number" },
+      { error: "distance_radius_km must be a positive number ≤ 20000" },
       400,
     );
   }

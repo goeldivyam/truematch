@@ -32,10 +32,16 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+const MAX_BODY_BYTES = 64 * 1024; // 64 KB — sufficient for any valid registration payload
+
 // Attaches raw body bytes to the context so routes can verify signatures.
+// Rejects bodies larger than MAX_BODY_BYTES to prevent memory exhaustion.
 export const attachRawBody = createMiddleware<{ Variables: HonoVariables }>(
   async (c, next) => {
     const body = await c.req.arrayBuffer();
+    if (body.byteLength > MAX_BODY_BYTES) {
+      return c.json({ error: "Request body too large" }, 413);
+    }
     c.set("rawBody", new Uint8Array(body));
     await next();
   },
