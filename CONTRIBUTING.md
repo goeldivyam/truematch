@@ -12,7 +12,8 @@ Thanks for your interest in contributing. TrueMatch is early stage — the best 
 1. Fork the repo
 2. Create a branch: `git checkout -b your-feature`
 3. Make your changes
-4. Open a pull request with a clear description
+4. Run `pnpm test` (root) and `cd plugin && pnpm test` (plugin) — all tests must pass
+5. Open a pull request with a clear description
 
 ## Local Dev Setup
 
