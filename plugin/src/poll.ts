@@ -208,6 +208,10 @@ async function main(): Promise<void> {
 
   // Advance watermark AFTER writing output (not before)
   savePollState({ last_poll_at: nowSeconds });
+
+  // Explicitly exit — SimplePool holds WebSocket connections open indefinitely,
+  // which would block bridge.sh's polling loop if we don't force termination.
+  process.exit(0);
 }
 
 main().catch((err) => {

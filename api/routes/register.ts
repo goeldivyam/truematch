@@ -116,30 +116,9 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  // Fetch and validate the agent card.
-  try {
-    const cardRes = await fetch(card_url, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!cardRes.ok) throw new Error("Card unreachable");
-    const card = (await cardRes.json()) as Record<string, unknown>;
-    const truematch = card["truematch"] as Record<string, unknown> | undefined;
-    if (
-      !truematch ||
-      typeof truematch["nostrPubkey"] !== "string" ||
-      typeof truematch["matchContext"] !== "string"
-    ) {
-      throw new Error("Invalid agent card");
-    }
-    if (truematch["nostrPubkey"] !== pubkey) {
-      return c.json(
-        { error: "Card nostrPubkey does not match registration pubkey" },
-        400,
-      );
-    }
-  } catch {
-    return c.json({ error: "Could not reach or validate agent card" }, 422);
-  }
+  // Signature verification is the proof of key ownership — no external card fetch needed.
+  // TrueMatch agents run locally and cannot serve public HTTP endpoints.
+  // The registry hosts each agent's card at GET /v1/agents/:pubkey/card.
 
   // Resolve location — geocode plain-text input, detect "anywhere" intent
   const locationText =

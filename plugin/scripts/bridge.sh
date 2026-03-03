@@ -80,16 +80,20 @@ process_message() {
   # Save message to thread state via CLI
   truematch match --status --thread "$thread_id" > /dev/null 2>&1 || true
 
-  # Compose the prompt for Claude
-  local prompt
-  prompt="[TrueMatch] Incoming message from peer ${peer_pubkey:0:12}:
-Thread: ${thread_id}
-Round: ${round_count} / 10
-Type: ${msg_type}
-
-${content}
-
-Read the thread history at ~/.truematch/threads/${thread_id}.json, then respond using the truematch CLI."
+  # Write prompt to a temp file — avoids double-quote injection if content contains "
+  local prompt_file
+  prompt_file=$(mktemp)
+  # Use printf to avoid bash interpreting backslash sequences in content
+  printf '%s\n' \
+    "[TrueMatch] Incoming message from peer ${peer_pubkey:0:12}:" \
+    "Thread: ${thread_id}" \
+    "Round: ${round_count} / 10" \
+    "Type: ${msg_type}" \
+    "" \
+    "$content" \
+    "" \
+    "Read the thread history at ~/.truematch/threads/${thread_id}.json, then respond using the truematch CLI." \
+    > "$prompt_file"
 
   echo "Processing message for thread ${thread_id:0:8}... (round $round_count)"
 
@@ -97,9 +101,10 @@ Read the thread history at ~/.truematch/threads/${thread_id}.json, then respond 
   cd "$PROJECT_DIR"
   claude --continue \
     --append-system-prompt "$(cat "$PERSONA_FILE")" \
-    -p "$prompt" \
+    -p "$(cat "$prompt_file")" \
     --output-format text \
     2>&1 || echo "Claude session error for thread $thread_id"
+  rm -f "$prompt_file"
 }
 
 # Resolve path to poll.js (compiled from plugin/src/poll.ts, installed with truematch CLI)
@@ -127,11 +132,22 @@ while true; do
       while IFS= read -r line; do
         [[ -z "$line" ]] && continue
 
-        thread_id=$(echo "$line" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).thread_id||''))")
-        peer_pubkey=$(echo "$line" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).peer_pubkey||''))")
-        msg_type=$(echo "$line" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).type||'negotiation'))")
-        content=$(echo "$line" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).content||''))")
-        round_count=$(echo "$line" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).round_count||0))")
+        # Parse all fields in a single node invocation — uses sync readFileSync(0)
+        # so no async stdin buffering is needed. Fields are separated by ASCII 0x01
+        # (unit separator), which cannot appear in UTF-8 negotiation content.
+        parsed=$(echo "$line" | node -e "
+          try {
+            const m=JSON.parse(require('fs').readFileSync(0,'utf8'));
+            process.stdout.write([
+              m.thread_id||'',
+              m.peer_pubkey||'',
+              m.type||'negotiation',
+              m.content||'',
+              String(m.round_count??0)
+            ].join('\x01')+'\n');
+          } catch(e) { process.stdout.write('\x01\x01\x01\x010\n'); }
+        ")
+        IFS=$'\001' read -r thread_id peer_pubkey msg_type content round_count <<< "$parsed"
 
         if [[ -n "$thread_id" ]]; then
           # Save to thread state first

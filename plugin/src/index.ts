@@ -168,9 +168,12 @@ To complete setup, provide your contact channel:
     process.exit(1);
   }
 
+  // Registry hosts a per-agent card from stored data — agents run locally and
+  // cannot self-serve /.well-known/agent-card.json. Override with TRUEMATCH_CARD_URL
+  // if you self-host your registry or want to serve your own card.
   const cardUrl =
     process.env["TRUEMATCH_CARD_URL"] ??
-    `https://clawmatch.org/.well-known/agent-card.json`;
+    `https://clawmatch.org/v1/agents/${identity.npub}/card`;
 
   const prefs = await loadPreferences();
   const reg = await register(
@@ -542,14 +545,26 @@ async function cmdMatch(): Promise<void> {
     // Location/distance filtered server-side. Age range and gender preference
     // are private (never in the registry) — Claude enforces them before
     // sending match_propose (see skill.md Step 4.5).
-    const candidates = agents.filter((a) => a.pubkey !== identity.npub);
+    const activeThreads = await listActiveThreads();
+    const activePeers = new Set(activeThreads.map((t) => t.peer_pubkey));
+
+    const candidates = agents.filter(
+      (a) => a.pubkey !== identity.npub && !activePeers.has(a.pubkey),
+    );
 
     if (candidates.length === 0) {
-      console.log("No other agents in the pool yet. Check back later.");
+      if (agents.filter((a) => a.pubkey !== identity.npub).length === 0) {
+        console.log("No other agents in the pool yet. Check back later.");
+      } else {
+        console.log(
+          "Already negotiating with all available agents. Check back later.",
+        );
+      }
       return;
     }
 
-    const peer = candidates[0];
+    // Random selection — distributes load and avoids always negotiating with the same peer
+    const peer = candidates[Math.floor(Math.random() * candidates.length)]!;
     console.log(`Starting negotiation with ${peer.pubkey.slice(0, 12)}...`);
 
     // Create the thread — Claude writes and sends the opening via --send

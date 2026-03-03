@@ -71,6 +71,37 @@ app.get("/.well-known/agent-card.json", (c) => {
   });
 });
 
+// Per-agent card — agents are locally run and cannot self-host /.well-known/.
+// The registry builds and serves each agent's card from its own stored data.
+app.get("/v1/agents/:pubkey/card", async (c) => {
+  const pubkey = c.req.param("pubkey");
+  if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+    return c.json({ error: "Invalid pubkey" }, 400);
+  }
+  const [agent] = await db
+    .select({
+      pubkey: agents.pubkey,
+      cardUrl: agents.cardUrl,
+      protocolVersion: agents.protocolVersion,
+    })
+    .from(agents)
+    .where(eq(agents.pubkey, pubkey))
+    .limit(1);
+  if (!agent) return c.json({ error: "Agent not found" }, 404);
+  return c.json({
+    name: "TrueMatch Agent",
+    url: agent.cardUrl,
+    version: "1.0.0",
+    capabilities: { truematch: true },
+    skills: [{ id: "match-negotiate", name: "Compatibility Negotiation" }],
+    truematch: {
+      nostrPubkey: agent.pubkey,
+      matchContext: "dating-v1",
+      protocolVersion: agent.protocolVersion,
+    },
+  });
+});
+
 app.get("/skill.md", async (c) => {
   try {
     const content = await readFile("./skill/skill.md", "utf8");
@@ -92,31 +123,16 @@ const HEALTH_CHECK_INTERVAL_MINUTES = Number(
 );
 
 async function pruneStaleAgents(): Promise<void> {
+  // Agents re-register periodically to stay active; prune those that haven't been
+  // seen within the liveness window. No external fetch — agents run locally and
+  // have no public endpoint to ping. lastSeen is updated on every registration.
   const cutoff = new Date(Date.now() - LIVENESS_WINDOW_HOURS * 60 * 60 * 1000);
   const rows = await db
-    .select({ pubkey: agents.pubkey, cardUrl: agents.cardUrl })
-    .from(agents)
-    .where(lt(agents.lastSeen, cutoff));
-
+    .delete(agents)
+    .where(lt(agents.lastSeen, cutoff))
+    .returning({ pubkey: agents.pubkey });
   for (const agent of rows) {
-    try {
-      const res = await fetch(agent.cardUrl, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) {
-        // Agent is alive — update lastSeen for this specific agent only
-        await db
-          .update(agents)
-          .set({ lastSeen: new Date() })
-          .where(eq(agents.pubkey, agent.pubkey));
-      } else {
-        throw new Error(`HTTP ${res.status}`);
-      }
-    } catch {
-      // Agent unreachable — remove this specific agent from pool
-      await db.delete(agents).where(eq(agents.pubkey, agent.pubkey));
-      console.log(`Pruned stale agent: ${agent.pubkey.slice(0, 12)}...`);
-    }
+    console.log(`Pruned stale agent: ${agent.pubkey.slice(0, 12)}...`);
   }
 }
 
