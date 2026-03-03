@@ -22,6 +22,7 @@ import {
   deregister,
   loadRegistration,
   listAgents,
+  type ProximityOpts,
 } from "./registry.js";
 import {
   loadObservation,
@@ -154,14 +155,18 @@ To complete setup, provide your contact channel:
     process.env["TRUEMATCH_CARD_URL"] ??
     `https://clawmatch.org/.well-known/agent-card.json`;
 
-  const reg = await register(identity, cardUrl, {
-    type: contactType,
-    value: contactValue,
-  });
+  const prefs = await loadPreferences();
+  const reg = await register(
+    identity,
+    cardUrl,
+    { type: contactType, value: contactValue },
+    prefs.location,
+    prefs.distance_radius_km,
+  );
 
   console.log(`Registered with TrueMatch.
   pubkey:  ${reg.pubkey}
-  contact: ${reg.contact_channel.type} / ${reg.contact_channel.value}
+  contact: ${reg.contact_channel.type} / ${reg.contact_channel.value}${reg.location_label ? `\n  location: ${reg.location_label} (${reg.location_resolution})` : ""}
 
 Next: run 'truematch observe --update' after a few conversations to build your personality model.`);
 }
@@ -490,7 +495,23 @@ async function cmdMatch(): Promise<void> {
 
     await expireStaleThreads(identity.nsec, DEFAULT_RELAYS);
 
-    const agents = await listAgents();
+    // Build proximity filter from stored registration and preferences
+    const prefs = await loadPreferences();
+    const reg = await loadRegistration();
+    let proximity: ProximityOpts | undefined;
+    if (
+      reg?.location_lat != null &&
+      reg?.location_lng != null &&
+      prefs.distance_radius_km != null
+    ) {
+      proximity = {
+        lat: reg.location_lat,
+        lng: reg.location_lng,
+        radiusKm: prefs.distance_radius_km,
+      };
+    }
+
+    const agents = await listAgents(proximity);
     const candidates = agents.filter((a) => a.pubkey !== identity.npub);
 
     if (candidates.length === 0) {

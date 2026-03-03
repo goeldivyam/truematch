@@ -86,6 +86,12 @@ export interface RegistrationRecord {
   contact_channel: ContactChannel;
   registered_at: string;
   enrolled: boolean;
+  // Geocoded location returned by registry at registration time.
+  // Stored locally so the agent can pass lat/lng to GET /v1/agents for proximity filtering.
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_label?: string | null;
+  location_resolution?: string | null;
 }
 
 // ── Nostr / Negotiation ───────────────────────────────────────────────────────

@@ -15,6 +15,13 @@
       "when": 1772560000000,
       "tag": "0001_drop_inbox_url",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772640000000,
+      "tag": "0002_add_location",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import { attachRawBody, verifySignature } from "../middleware/verify.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import type { HonoVariables } from "../types.js";
 import { encrypt } from "../crypto.js";
+import { geocode, isAnywhereIntent } from "../geocode.js";
 
 export const register = new Hono<{ Variables: HonoVariables }>();
 
@@ -69,6 +70,7 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
   }
 
   const { pubkey, card_url, contact_channel } = body as Record<string, unknown>;
+  const bodyRecord = body as Record<string, unknown>;
 
   if (typeof pubkey !== "string" || !PUBKEY_RE.test(pubkey)) {
     return c.json({ error: "Invalid pubkey" }, 400);
@@ -91,6 +93,23 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     )
   ) {
     return c.json({ error: "Invalid contact_channel" }, 400);
+  }
+
+  // Optional location fields — validated but not required
+  const rawLocation = bodyRecord["location"];
+  const rawDistance = bodyRecord["distance_radius_km"];
+
+  if (rawLocation !== undefined && typeof rawLocation !== "string") {
+    return c.json({ error: "location must be a string" }, 400);
+  }
+  if (
+    rawDistance !== undefined &&
+    (typeof rawDistance !== "number" || rawDistance <= 0)
+  ) {
+    return c.json(
+      { error: "distance_radius_km must be a positive number" },
+      400,
+    );
   }
 
   if (!verifySignature(pubkey, sig, rawBody)) {
@@ -122,6 +141,32 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     return c.json({ error: "Could not reach or validate agent card" }, 422);
   }
 
+  // Resolve location — geocode plain-text input, detect "anywhere" intent
+  const locationText =
+    typeof rawLocation === "string" ? rawLocation.trim() : null;
+  const distanceKm = typeof rawDistance === "number" ? rawDistance : null;
+
+  let locationLat: number | null = null;
+  let locationLng: number | null = null;
+  let locationResolution: string | null = null;
+  let locationLabel: string | null = null;
+  let locationAnywhere = 0;
+
+  if (!locationText || isAnywhereIntent(locationText)) {
+    locationAnywhere = 1;
+    locationResolution = "anywhere";
+  } else {
+    const geo = await geocode(locationText);
+    if (geo) {
+      locationLat = geo.lat;
+      locationLng = geo.lng;
+      locationResolution = geo.resolution;
+      locationLabel = geo.label;
+    } else {
+      locationResolution = "unresolved";
+    }
+  }
+
   const cc = contact_channel as { type: string; value: string };
   const now = new Date();
 
@@ -134,6 +179,13 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
       contactChannelValue: encrypt(cc.value),
       lastSeen: now,
       registeredAt: now,
+      locationText,
+      locationLat,
+      locationLng,
+      locationResolution,
+      locationLabel,
+      locationAnywhere,
+      distanceRadiusKm: distanceKm,
     })
     .onConflictDoUpdate({
       target: agents.pubkey,
@@ -142,10 +194,30 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
         contactChannelType: cc.type,
         contactChannelValue: encrypt(cc.value),
         lastSeen: now,
+        locationText,
+        locationLat,
+        locationLng,
+        locationResolution,
+        locationLabel,
+        locationAnywhere,
+        distanceRadiusKm: distanceKm,
       },
     });
 
-  return c.json({ enrolled: true, pubkey }, 201);
+  return c.json(
+    {
+      enrolled: true,
+      pubkey,
+      // Return geocoded coordinates so the agent can store them locally for
+      // use as query parameters when calling GET /v1/agents.
+      // Null when location is unresolved or anywhere.
+      location_lat: locationLat,
+      location_lng: locationLng,
+      location_label: locationLabel,
+      location_resolution: locationResolution,
+    },
+    201,
+  );
 });
 
 register.delete("/", rateLimit, attachRawBody, async (c) => {
