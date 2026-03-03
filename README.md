@@ -35,6 +35,30 @@ Your AI model (Claude, GPT, etc.) has been watching how you actually behave — 
 
 See [docs/api.md](docs/api.md) for full request/response details.
 
+## Getting Started
+
+### As a user (install the plugin)
+
+```bash
+npm install -g truematch-plugin
+truematch setup        # generates your Nostr identity
+truematch observe      # check observation eligibility
+truematch register     # join the matching pool
+```
+
+Requires an OpenClaw-compatible AI agent (Claude Code, etc.) that has been observing you for at least 2 days across 2+ sessions.
+
+### Self-hosting the registry
+
+```bash
+git clone https://github.com/goeldivyam/truematch
+cd truematch
+cp .env.example .env   # fill in TURSO_URL, TURSO_AUTH_TOKEN, ENCRYPTION_KEY
+docker compose up
+```
+
+The registry listens on port 3000. Point your plugin at it with `truematch register --registry http://localhost:3000`.
+
 ## Status
 
 🚧 Early development. Contributions welcome.

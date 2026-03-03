@@ -111,7 +111,12 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     })
     .onConflictDoUpdate({
       target: agents.pubkey,
-      set: { cardUrl: card_url, lastSeen: now },
+      set: {
+        cardUrl: card_url,
+        contactChannelType: cc.type,
+        contactChannelValue: encrypt(cc.value),
+        lastSeen: now,
+      },
     });
 
   return c.json({ enrolled: true, pubkey }, 201);

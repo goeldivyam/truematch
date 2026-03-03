@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -19,7 +19,9 @@ const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
 // Double-lock: both agents must independently clear this threshold
-export const COMPOSITE_THRESHOLD = 0.74;
+// Composite threshold used by the skeptical-advocate persona when deciding
+// whether to propose. Enforced by Claude's judgment, not programmatically.
+const COMPOSITE_THRESHOLD = 0.74;
 
 // Confidence cap for dimensions observed in only one behavioral context
 const LOW_DIVERSITY_CAP = 0.65;
@@ -57,7 +59,6 @@ export async function saveThread(state: NegotiationState): Promise<void> {
 
 export async function listActiveThreads(): Promise<NegotiationState[]> {
   await ensureThreadsDir();
-  const { readdir } = await import("node:fs/promises");
   const files = await readdir(THREADS_DIR);
   const threads: NegotiationState[] = [];
   for (const f of files) {
@@ -83,6 +84,7 @@ export async function expireStaleThreads(
     ) {
       await sendEnd(nsec, npub, thread.peer_pubkey, thread.thread_id, relays);
       thread.status = "expired";
+      thread.last_activity = new Date().toISOString(); // prevent duplicate sends on next cycle
       await saveThread(thread);
     }
   }
@@ -155,6 +157,13 @@ export async function receiveMessage(
     } catch {
       // content was plain text
     }
+    // Double-lock: if we already sent a proposal, both sides have now proposed → match confirmed
+    const weAlreadyProposed = state.messages.some(
+      (m) => m.role === "us" && m.content.startsWith("[match_propose]"),
+    );
+    if (weAlreadyProposed) {
+      state.status = "matched";
+    }
   }
 
   await saveThread(state);
@@ -192,7 +201,7 @@ export async function sendMessage(
     content,
   };
 
-  await publishMessage(nsec, npub, state.peer_pubkey, msg, relays);
+  await publishMessage(nsec, state.peer_pubkey, msg, relays);
 
   state.messages.push({ role: "us", content, timestamp: now });
   state.round_count += 1;
@@ -222,13 +231,14 @@ export async function proposeMatch(
     content,
   };
 
-  await publishMessage(nsec, npub, state.peer_pubkey, msg, relays);
+  await publishMessage(nsec, state.peer_pubkey, msg, relays);
 
   state.messages.push({
     role: "us",
     content: `[match_propose] ${content}`,
     timestamp: now,
   });
+  state.round_count += 1;
   state.last_activity = now;
 
   // If peer already proposed, the match is confirmed (double-lock cleared)
@@ -260,7 +270,7 @@ export async function declineMatch(
 // ── Scoring helpers ───────────────────────────────────────────────────────────
 
 // Cap confidence for dimensions observed in only one behavioral context
-export function effectiveConfidence(d: {
+function effectiveConfidence(d: {
   confidence: number;
   behavioral_context_diversity: "low" | "medium" | "high";
 }): number {
@@ -269,7 +279,9 @@ export function effectiveConfidence(d: {
     : d.confidence;
 }
 
-export function computeCompositeScore(obs: ObservationSummary): number {
+// Confidence-weighted composite: high-confidence dimensions receive proportionally
+// more weight (weight = effective_confidence). Used for internal sanity checks.
+function computeCompositeScore(obs: ObservationSummary): number {
   const dims = [
     obs.attachment,
     obs.core_values,
@@ -285,7 +297,7 @@ export function computeCompositeScore(obs: ObservationSummary): number {
   return totalWeight > 0 ? weightedSum / totalWeight : 0;
 }
 
-export function checkDimensionFloors(obs: ObservationSummary): boolean {
+function checkDimensionFloors(obs: ObservationSummary): boolean {
   return (
     obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
     obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
@@ -309,7 +321,6 @@ async function sendEnd(
 ): Promise<void> {
   await publishMessage(
     nsec,
-    npub,
     peerNpub,
     {
       truematch: "2.0",

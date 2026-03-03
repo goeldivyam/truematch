@@ -1,3 +1,6 @@
+// NOTE: Throughout this codebase, "nsec" refers to the raw hex-encoded private key
+// (32 bytes as a 64-char hex string), NOT the bech32 "nsec1..." encoding used by
+// Nostr clients. Do not pass bech32-encoded keys to any function expecting nsec.
 import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";

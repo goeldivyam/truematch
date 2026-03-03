@@ -197,6 +197,11 @@ Platform Fully Withdraws — Humans Connect Directly
 ```
 truematch/
 ├── .claude/
+│   ├── agent-memory/              # Persistent memory files for each custom agent
+│   │   ├── agent-infra-scout/
+│   │   ├── openclaw-integration-advisor/
+│   │   ├── opensource-llm-scout/
+│   │   └── social-matching-psychologist/
 │   ├── agents/                    # Custom Claude Code agent definitions
 │   │   ├── agent-infra-scout.md
 │   │   ├── openclaw-integration-advisor.md
@@ -243,6 +248,8 @@ truematch/
 │   │   └── session-update/        # Fires on command:new (end of session)
 │   │       ├── handler.ts         # Runs truematch observe --update and prompts Claude
 │   │       └── HOOK.md            # Hook metadata (name, events, requirements)
+│   ├── scripts/
+│   │   └── bridge.sh              # Nostr relay polling bridge daemon
 │   ├── skills/
 │   │   └── truematch/
 │   │       └── SKILL.md           # OpenClaw skill manifest for the truematch skill
@@ -252,6 +259,7 @@ truematch/
 │   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
+│   │   ├── preferences.ts         # UserPreferences load/save/format helpers
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration
 │   │   └── types.ts               # All TypeScript types (DimensionObservation + behavioral_context_diversity)
 │   ├── openclaw.plugin.json        # Plugin manifest (skills + hooks declared)
@@ -263,6 +271,8 @@ truematch/
 │   └── index.ts                   # Server entry point (Hono + migrations + pruning loop + GET / + agent-card)
 ├── .env.example
 ├── .gitignore
+├── .prettierrc
+├── azure.yml                      # Azure deployment config
 ├── CONTRIBUTING.md
 ├── Dockerfile                     # Multi-stage build, non-root user
 ├── LICENSE

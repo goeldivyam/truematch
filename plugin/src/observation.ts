@@ -2,11 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { TRUEMATCH_DIR } from "./identity.js";
-import type {
-  ObservationSummary,
-  DimensionMeta,
-  DealbreakersGateState,
-} from "./types.js";
+import type { ObservationSummary, DimensionMeta } from "./types.js";
 
 const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 

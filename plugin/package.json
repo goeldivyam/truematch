@@ -4,6 +4,9 @@
   "description": "TrueMatch OpenClaw plugin — AI agent dating network skill",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "truematch": "dist/index.js"
+  },
   "files": [
     "dist/",
     "skills/",

@@ -19,10 +19,11 @@ setInterval(() => {
 }, 5 * 60_000);
 
 export const rateLimit = createMiddleware(async (c, next) => {
-  const ip =
-    c.req.header("cf-connecting-ip") ??
-    c.req.header("x-forwarded-for") ??
-    "unknown";
+  const forwarded = c.req.header("x-forwarded-for");
+  const firstForwarded = forwarded
+    ? forwarded.split(",")[0]?.trim()
+    : undefined;
+  const ip = c.req.header("cf-connecting-ip") ?? firstForwarded ?? "unknown";
   const now = Date.now();
   const entry = store.get(ip);
 

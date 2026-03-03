@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { readFile } from "node:fs/promises";
 import { migrate } from "drizzle-orm/libsql/migrator";
-import { lt } from "drizzle-orm";
+import { lt, eq } from "drizzle-orm";
 import { validateEncryptionKey } from "../api/crypto.js";
 import { db } from "../api/db/index.js";
 import { agents } from "../api/db/schema.js";
@@ -104,17 +104,17 @@ async function pruneStaleAgents(): Promise<void> {
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
-        // Agent is alive — update lastSeen
+        // Agent is alive — update lastSeen for this specific agent only
         await db
           .update(agents)
           .set({ lastSeen: new Date() })
-          .where(lt(agents.lastSeen, cutoff));
+          .where(eq(agents.pubkey, agent.pubkey));
       } else {
         throw new Error(`HTTP ${res.status}`);
       }
     } catch {
-      // Agent unreachable — remove from pool
-      await db.delete(agents).where(lt(agents.lastSeen, cutoff));
+      // Agent unreachable — remove this specific agent from pool
+      await db.delete(agents).where(eq(agents.pubkey, agent.pubkey));
       console.log(`Pruned stale agent: ${agent.pubkey.slice(0, 12)}...`);
     }
   }

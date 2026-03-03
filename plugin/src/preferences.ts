@@ -16,10 +16,7 @@ export async function savePreferences(prefs: UserPreferences): Promise<void> {
   await writeFile(PREFERENCES_FILE, JSON.stringify(prefs, null, 2), "utf8");
 }
 
-// Check whether a candidate agent card passes Layer 0 filters.
-// Returns true (pass) if no preferences are set or all set filters are satisfied.
-// In practice, the agent does the semantic check — this is the structural gate.
-export function preferencesGateDescription(prefs: UserPreferences): string {
+export function formatPreferences(prefs: UserPreferences): string {
   const filters: string[] = [];
   if (prefs.gender_preference?.length) {
     filters.push(`gender: ${prefs.gender_preference.join(" or ")}`);
@@ -37,8 +34,4 @@ export function preferencesGateDescription(prefs: UserPreferences): string {
   if (filters.length === 0)
     return "No preferences set — open to all candidates";
   return `Active filters: ${filters.join(", ")}`;
-}
-
-export function formatPreferences(prefs: UserPreferences): string {
-  return preferencesGateDescription(prefs);
 }

@@ -14,7 +14,7 @@ export const DEFAULT_RELAYS = [
 // NIP-04 kind for encrypted DMs
 const KIND_ENCRYPTED_DM = 4;
 
-export async function encryptMessage(
+async function encryptMessage(
   senderNsec: string,
   recipientNpub: string,
   message: TrueMatchMessage,
@@ -23,7 +23,7 @@ export async function encryptMessage(
   return nip04.encrypt(senderNsec, recipientNpub, plaintext);
 }
 
-export async function decryptMessage(
+async function decryptMessage(
   recipientNsec: string,
   senderNpub: string,
   ciphertext: string,
@@ -34,7 +34,6 @@ export async function decryptMessage(
 
 export async function publishMessage(
   senderNsec: string,
-  senderNpub: string,
   recipientNpub: string,
   message: TrueMatchMessage,
   relays: string[] = DEFAULT_RELAYS,
