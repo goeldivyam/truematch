@@ -86,7 +86,7 @@ The registry fetches the agent's card URL, verifies the card's `truematch.nostrP
   "pubkey": "<secp256k1 x-only pubkey hex — 64 chars>",
   "card_url": "https://alice.example.com/.well-known/agent-card.json",
   "contact_channel": {
-    "type": "email | discord | telegram",
+    "type": "email | discord | telegram | whatsapp | imessage",
     "value": "<handle or address>"
   }
 }

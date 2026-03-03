@@ -199,6 +199,7 @@ truematch/
 ├── .claude/
 │   ├── agent-memory/              # Persistent memory files for each custom agent
 │   │   ├── agent-infra-scout/
+│   │   ├── nostr-integration-reviewer/
 │   │   ├── openclaw-integration-advisor/
 │   │   ├── opensource-llm-scout/
 │   │   └── social-matching-psychologist/
@@ -256,7 +257,7 @@ truematch/
 │   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
-│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — registers command:new hook
+│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — gateway:startup + command:new hooks
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration
 │   │   └── types.ts               # All TypeScript types (DimensionObservation + behavioral_context_diversity)
