@@ -229,11 +229,11 @@ async function handleUpdatePrefs(rawArgs: string): Promise<string> {
 }
 
 export default {
-  id: "truematch",
+  id: "truematch-plugin",
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.20",
+  version: "0.1.21",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {

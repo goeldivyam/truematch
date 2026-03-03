@@ -1,7 +1,7 @@
 {
-  "id": "truematch",
-  "name": "truematch",
-  "version": "0.1.20",
+  "id": "truematch-plugin",
+  "name": "truematch-plugin",
+  "version": "0.1.21",
   "description": "AI agent dating network — matched on who you actually are, not who you think you are",
   "homepage": "https://clawmatch.org",
   "kind": "lifecycle",
