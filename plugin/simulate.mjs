@@ -2,26 +2,41 @@
 /**
  * TrueMatch end-to-end simulation
  *
- * Simulates two agents (Alice and Bob) going through the full matching flow:
- *   Scenario 1 — Successful double-lock match
- *   Scenario 2 — Bob declines (sends "end")
- *   Scenario 3 — Pending notification written on match
- *   Scenario 4 — Per-peer inbound thread DoS cap
- *   Scenario 5 — Thread expiry (72h stale timeout)
- *   Scenario 6 — Round cap (10-round hard limit)
- *   Scenario 7 — Handoff rounds 1 → 2 → 3 → complete + opt-out path
- *   Scenario 8 — NIP-04 encrypt/decrypt round-trip + wrong-key rejection
- *   Scenario 9 — Live Nostr round-trip (opt-in: --live-nostr)
+ * Simulates agents going through the full matching flow:
+ *   Scenario 1  — Successful double-lock match
+ *   Scenario 2  — Bob declines (sends "end")
+ *   Scenario 3  — Pending notification written on match
+ *   Scenario 4  — Per-peer inbound thread DoS cap
+ *   Scenario 5  — Thread expiry (72h stale timeout)
+ *   Scenario 6  — Round cap (10-round hard limit)
+ *   Scenario 7  — Handoff rounds 1 → 2 → 3 → complete + opt-out path
+ *   Scenario 8  — NIP-04 encrypt/decrypt round-trip + wrong-key rejection
+ *   Scenario 9  — Live Nostr round-trip (opt-in: --live-nostr)
+ *   Scenario 10 — Multi-party offline: 6 agents, 3 pairs (match/decline/match)
+ *   Scenario 11 — Multi-party live Nostr: 6 agents, 3 pairs (opt-in: --live-nostr)
+ *   Scenario 12 — poll.ts JSONL output via child process (opt-in: --live-nostr)
  *
- * Scenarios 1-8 bypass live Nostr relays and test the state machine directly.
- * Scenario 9 publishes a real NIP-04 DM to public relays and verifies receipt.
+ * Scenarios 1-8, 10 bypass live Nostr relays and test the state machine directly.
+ * Scenarios 9, 11, 12 publish real NIP-04 DMs to public relays (--live-nostr flag).
  * Uses TRUEMATCH_DIR_OVERRIDE to give each agent an isolated temp directory
  * without reloading modules.
+ *
+ * What is NOT covered by simulation:
+ *   - match --start with registry candidates: requires a live registry or mock HTTP
+ *     server (clawmatch.org/v1/agents). Testable with a TRUEMATCH_REGISTRY_URL_OVERRIDE
+ *     source change + a local stub server.
+ *   - bridge.sh daemon loop: shell process management / Claude pipe integration.
+ *     poll.ts itself is tested in Scenario 12; the loop is not.
  */
 
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
 import {
@@ -73,6 +88,7 @@ const {
   receiveMessage,
   proposeMatch,
   sendMessage,
+  declineMatch,
   loadThread,
   saveThread,
   expireStaleThreads,
@@ -611,7 +627,7 @@ async function scenario8() {
 // Skipped by default — pass --live-nostr to run.
 
 async function scenario9() {
-  section("Scenario 5: Live Nostr round-trip (real public relays)");
+  section("Scenario 9: Live Nostr round-trip (real public relays)");
 
   const alice = makeIdentity();
   const bob = makeIdentity();
@@ -675,11 +691,505 @@ async function scenario9() {
   }
 }
 
+// ── Scenario 10: Multi-party offline (6 agents, 3 pairs) ─────────────────────
+//
+// Runs 3 completely isolated pairs through their full negotiation flows:
+//   Pair 1 (Alice / Bob)  → double-lock match
+//   Pair 2 (Carol / Dave) → decline
+//   Pair 3 (Eve / Frank)  → double-lock match
+// Each pair has its own isolated temp dir. Sequential — no live Nostr needed.
+
+async function scenario10() {
+  section("Scenario 10: Multi-party offline (6 agents, 3 pairs)");
+
+  const narrative = {
+    headline: "Strong alignment across core dimensions",
+    strengths: ["shared values", "compatible communication style"],
+    watch_points: ["life velocity difference worth exploring"],
+    confidence_summary: "0.80 composite",
+  };
+
+  // ── Pair 1: Alice / Bob → double-lock match ────────────────────────────────
+  {
+    const dirA = makeTestDir("alice10");
+    const dirB = makeTestDir("bob10");
+    const alice = makeIdentity();
+    const bob = makeIdentity();
+    writeIdentity(dirA, alice);
+    writeIdentity(dirB, bob);
+
+    setAgent(dirA);
+    const thread = await initiateNegotiation(bob.npub);
+
+    // Bob receives Alice's opening + her proposal
+    setAgent(dirB);
+    await receiveMessage(thread.thread_id, alice.npub, "Hi!", "negotiation");
+    await receiveMessage(
+      thread.thread_id,
+      alice.npub,
+      JSON.stringify(narrative),
+      "match_propose",
+    );
+
+    // Alice receives Bob's proposal → she proposes → double-lock
+    setAgent(dirA);
+    await receiveMessage(
+      thread.thread_id,
+      bob.npub,
+      JSON.stringify(narrative),
+      "match_propose",
+    );
+    const result = await proposeMatch(
+      alice.nsec,
+      thread.thread_id,
+      narrative,
+      [],
+    );
+    if (result.status !== "matched")
+      fail("Pair 1: Alice should be matched", result.status);
+    else pass("Pair 1 (Alice/Bob): double-lock match confirmed");
+
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  }
+
+  // ── Pair 2: Carol / Dave → decline ────────────────────────────────────────
+  {
+    const dirC = makeTestDir("carol10");
+    const dirD = makeTestDir("dave10");
+    const carol = makeIdentity();
+    const dave = makeIdentity();
+    writeIdentity(dirC, carol);
+    writeIdentity(dirD, dave);
+
+    setAgent(dirC);
+    const thread = await initiateNegotiation(dave.npub);
+
+    setAgent(dirD);
+    await receiveMessage(thread.thread_id, carol.npub, "Hi", "negotiation");
+    const daveSees = await receiveMessage(
+      thread.thread_id,
+      carol.npub,
+      "",
+      "end",
+    );
+    if (daveSees?.status !== "declined")
+      fail("Pair 2: Dave should see declined", daveSees?.status);
+
+    setAgent(dirC);
+    const carolSees = await receiveMessage(
+      thread.thread_id,
+      dave.npub,
+      "",
+      "end",
+    );
+    if (carolSees?.status !== "declined")
+      fail("Pair 2: Carol should see declined", carolSees?.status);
+    else pass("Pair 2 (Carol/Dave): decline confirmed on both sides");
+
+    rmSync(dirC, { recursive: true, force: true });
+    rmSync(dirD, { recursive: true, force: true });
+  }
+
+  // ── Pair 3: Eve / Frank → double-lock match ────────────────────────────────
+  {
+    const dirE = makeTestDir("eve10");
+    const dirF = makeTestDir("frank10");
+    const eve = makeIdentity();
+    const frank = makeIdentity();
+    writeIdentity(dirE, eve);
+    writeIdentity(dirF, frank);
+
+    setAgent(dirE);
+    const thread = await initiateNegotiation(frank.npub);
+
+    // Frank receives Eve's message and proposes first
+    setAgent(dirF);
+    await receiveMessage(thread.thread_id, eve.npub, "Hey!", "negotiation");
+    const frankProposed = await proposeMatch(
+      frank.nsec,
+      thread.thread_id,
+      narrative,
+      [],
+    );
+    if (!frankProposed.we_proposed)
+      fail(
+        "Pair 3: Frank we_proposed should be true",
+        frankProposed.we_proposed,
+      );
+
+    // Eve receives Frank's proposal → she proposes → matched
+    setAgent(dirE);
+    await receiveMessage(
+      thread.thread_id,
+      frank.npub,
+      JSON.stringify(narrative),
+      "match_propose",
+    );
+    const eveResult = await proposeMatch(
+      eve.nsec,
+      thread.thread_id,
+      narrative,
+      [],
+    );
+    if (eveResult.status !== "matched")
+      fail("Pair 3: Eve should be matched", eveResult.status);
+    else pass("Pair 3 (Eve/Frank): double-lock match confirmed");
+
+    // Frank's side: receives Eve's proposal → also matched
+    setAgent(dirF);
+    const frankSees = await receiveMessage(
+      thread.thread_id,
+      eve.npub,
+      JSON.stringify(narrative),
+      "match_propose",
+    );
+    if (frankSees?.status !== "matched")
+      fail("Pair 3: Frank side should show matched", frankSees?.status);
+    else pass("Pair 3: Frank's side also shows matched");
+
+    rmSync(dirE, { recursive: true, force: true });
+    rmSync(dirF, { recursive: true, force: true });
+  }
+}
+
+// ── Party class (used by Scenario 11) ────────────────────────────────────────
+//
+// Subscription callbacks ONLY push to inbox — no setAgent or file I/O inside.
+// Subscription callbacks from multiple relays fire concurrently; the global
+// TRUEMATCH_DIR_OVERRIDE env var is not safe to set from concurrent callbacks.
+// Instead, all negotiation processing is done sequentially in processInbox().
+
+class Party {
+  constructor(name) {
+    this.name = name;
+    this.dir = makeTestDir(name + "11");
+    this.identity = makeIdentity();
+    this.inbox = [];
+    this.unsubscribe = null;
+    writeIdentity(this.dir, this.identity);
+  }
+
+  async subscribe(since) {
+    this.unsubscribe = await subscribeToMessages(
+      this.identity.nsec,
+      this.identity.npub,
+      async (fromPubkey, message) => {
+        // INBOX ONLY — never call setAgent or file I/O here.
+        this.inbox.push({ fromPubkey, message });
+      },
+      DEFAULT_RELAYS,
+      since,
+    );
+  }
+
+  async waitForMessages(count, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    while (this.inbox.length < count && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return this.inbox.length >= count;
+  }
+
+  // Process all queued inbox messages under this party's agent dir. Sequential.
+  async processInbox() {
+    const messages = [...this.inbox];
+    this.inbox = [];
+    setAgent(this.dir);
+    for (const { fromPubkey, message } of messages) {
+      await receiveMessage(
+        message.thread_id,
+        fromPubkey,
+        message.content ?? "",
+        message.type ?? "negotiation",
+      );
+    }
+  }
+
+  cleanup() {
+    this.unsubscribe?.();
+    rmSync(this.dir, { recursive: true, force: true });
+  }
+}
+
+// ── Scenario 11: Multi-party live Nostr (6 agents, 3 pairs) ──────────────────
+//
+// All 6 agents subscribe to live relays simultaneously.
+// Message processing is sequential (inbox-only pattern) to avoid global env var races.
+//   Pair 1 (Alice / Bob)  → Alice proposes → Bob counters → both matched
+//   Pair 2 (Carol / Dave) → Carol sends a message → Dave declines live
+//   Pair 3 (Eve / Frank)  → Eve proposes → Frank counters → both matched
+// Requires --live-nostr. Expected runtime: ~40–70 seconds on public relays.
+
+async function scenario11() {
+  section("Scenario 11: Multi-party live Nostr (6 agents, 3 pairs)");
+
+  const since = Math.floor(Date.now() / 1000) - 10;
+  const alice = new Party("alice");
+  const bob = new Party("bob");
+  const carol = new Party("carol");
+  const dave = new Party("dave");
+  const eve = new Party("eve");
+  const frank = new Party("frank");
+  const allParties = [alice, bob, carol, dave, eve, frank];
+
+  const narrative = {
+    headline: "Live relay multi-party match — genuine alignment signal",
+    strengths: ["values overlap", "complementary communication style"],
+    watch_points: ["geographic distance worth discussing"],
+    confidence_summary: "0.78 composite",
+  };
+
+  // Subscribe all 6 simultaneously before any messages are sent
+  await Promise.all(allParties.map((p) => p.subscribe(since)));
+  pass("All 6 agents subscribed to live relays simultaneously");
+
+  // Allow WebSocket connections to establish before publishing
+  await new Promise((r) => setTimeout(r, 2000));
+
+  try {
+    // ── Pair 1: Alice / Bob → double-lock match ──────────────────────────────
+    setAgent(alice.dir);
+    const threadAB = await initiateNegotiation(bob.identity.npub);
+
+    // Alice proposes directly (no prior message round-trip needed)
+    setAgent(alice.dir);
+    await proposeMatch(
+      alice.identity.nsec,
+      threadAB.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    pass("Pair 1: Alice published proposal to live relays");
+
+    // Bob receives Alice's proposal
+    if (!(await bob.waitForMessages(1))) {
+      fail("Pair 1: Bob did not receive Alice's proposal", "timeout");
+      return;
+    }
+    await bob.processInbox();
+    pass("Pair 1: Bob received Alice's proposal");
+
+    // Bob counters → double-lock from Bob's side
+    setAgent(bob.dir);
+    const bobResult = await proposeMatch(
+      bob.identity.nsec,
+      threadAB.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    if (bobResult.status !== "matched")
+      fail(
+        "Pair 1: Bob should be matched after counter-propose",
+        bobResult.status,
+      );
+    else pass("Pair 1: Bob's side shows matched");
+
+    // Alice receives Bob's counter-proposal → both sides matched
+    if (!(await alice.waitForMessages(1))) {
+      fail("Pair 1: Alice did not receive Bob's proposal", "timeout");
+      return;
+    }
+    await alice.processInbox();
+    setAgent(alice.dir);
+    const aliceThread = await loadThread(threadAB.thread_id);
+    if (aliceThread?.status !== "matched")
+      fail("Pair 1: Alice side should show matched", aliceThread?.status);
+    else
+      pass("Pair 1 (Alice/Bob): double-lock match confirmed over live relay");
+
+    // ── Pair 2: Carol / Dave → decline ────────────────────────────────────
+    setAgent(carol.dir);
+    const threadCD = await initiateNegotiation(dave.identity.npub);
+    await sendMessage(
+      carol.identity.nsec,
+      threadCD.thread_id,
+      "Hi Dave, want to connect?",
+      DEFAULT_RELAYS,
+    );
+    pass("Pair 2: Carol sent opening message");
+
+    if (!(await dave.waitForMessages(1))) {
+      fail("Pair 2: Dave did not receive Carol's message", "timeout");
+      return;
+    }
+    await dave.processInbox();
+    pass("Pair 2: Dave received Carol's message");
+
+    setAgent(dave.dir);
+    await declineMatch(dave.identity.nsec, threadCD.thread_id, DEFAULT_RELAYS);
+    pass("Pair 2: Dave sent decline over live relay");
+
+    if (!(await carol.waitForMessages(1))) {
+      fail("Pair 2: Carol did not receive Dave's decline", "timeout");
+      return;
+    }
+    await carol.processInbox();
+    setAgent(carol.dir);
+    const carolThread = await loadThread(threadCD.thread_id);
+    if (carolThread?.status !== "declined")
+      fail("Pair 2: Carol should see declined", carolThread?.status);
+    else pass("Pair 2 (Carol/Dave): decline confirmed over live relay");
+
+    // ── Pair 3: Eve / Frank → double-lock match ──────────────────────────
+    setAgent(eve.dir);
+    const threadEF = await initiateNegotiation(frank.identity.npub);
+    await proposeMatch(
+      eve.identity.nsec,
+      threadEF.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    pass("Pair 3: Eve published proposal to live relays");
+
+    if (!(await frank.waitForMessages(1))) {
+      fail("Pair 3: Frank did not receive Eve's proposal", "timeout");
+      return;
+    }
+    await frank.processInbox();
+
+    setAgent(frank.dir);
+    const frankResult = await proposeMatch(
+      frank.identity.nsec,
+      threadEF.thread_id,
+      narrative,
+      DEFAULT_RELAYS,
+    );
+    if (frankResult.status !== "matched")
+      fail("Pair 3: Frank should be matched", frankResult.status);
+    else pass("Pair 3: Frank's side shows matched");
+
+    if (!(await eve.waitForMessages(1))) {
+      fail("Pair 3: Eve did not receive Frank's proposal", "timeout");
+      return;
+    }
+    await eve.processInbox();
+    setAgent(eve.dir);
+    const eveThread = await loadThread(threadEF.thread_id);
+    if (eveThread?.status !== "matched")
+      fail("Pair 3: Eve side should show matched", eveThread?.status);
+    else
+      pass("Pair 3 (Eve/Frank): double-lock match confirmed over live relay");
+
+    pass(
+      "All 3 pairs completed — multi-party live Nostr simulation successful",
+    );
+  } finally {
+    for (const p of allParties) p.cleanup();
+  }
+}
+
+// ── Scenario 12: poll.ts JSONL output via child process ──────────────────────
+//
+// Verifies that dist/poll.js correctly fetches and decodes NIP-04 DMs from
+// live relays and emits them as JSONL on stdout.
+//
+// Approach: publish a DM to a fresh test identity's pubkey, then spawn
+// `node dist/poll.js` with HOME pointing to the test dir (os.homedir() reads
+// $HOME, so poll.js's hardcoded TRUEMATCH_DIR resolves to the temp dir).
+
+async function scenario12() {
+  section("Scenario 12: poll.ts JSONL output via child process");
+
+  const pollHome = mkdtempSync(join(tmpdir(), "tm-pollhome-"));
+  const tmDir = join(pollHome, ".truematch");
+  mkdirSync(tmDir, { recursive: true, mode: 0o700 });
+
+  const poller = makeIdentity();
+  const sender = makeIdentity();
+
+  // Write the poller's identity so poll.js can load it
+  writeFileSync(
+    join(tmDir, "identity.json"),
+    JSON.stringify({ ...poller, created_at: new Date().toISOString() }),
+    { encoding: "utf8", mode: 0o600 },
+  );
+
+  // Publish a valid TrueMatch DM from sender → poller
+  const pollPayload = {
+    truematch: "2.0",
+    thread_id: "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+    type: "negotiation",
+    timestamp: new Date().toISOString(),
+    content: "Poll scenario test message " + Date.now(),
+  };
+
+  try {
+    await publishMessage(sender.nsec, poller.npub, pollPayload, DEFAULT_RELAYS);
+    pass("Sender published test DM to poller's pubkey over live relays");
+  } catch (err) {
+    fail("Failed to publish test DM", err.message);
+    rmSync(pollHome, { recursive: true, force: true });
+    return;
+  }
+
+  // Wait for relay propagation before polling
+  await new Promise((r) => setTimeout(r, 4000));
+
+  const pollJs = join(__dirname, "dist", "poll.js");
+  const stdout = await new Promise((resolve, reject) => {
+    // HOME override redirects poll.js's os.homedir() to the isolated temp dir
+    const child = spawn("node", [pollJs], {
+      env: { ...process.env, HOME: pollHome },
+      timeout: 15000,
+    });
+    let out = "";
+    let errOut = "";
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.stderr.on("data", (d) => {
+      errOut += d;
+    });
+    child.on("close", (code) => {
+      if (code !== 0)
+        reject(new Error(`poll.js exited ${code}: ${errOut.trim()}`));
+      else resolve(out);
+    });
+    child.on("error", reject);
+  }).catch((err) => {
+    fail("poll.js process failed", err.message);
+    return null;
+  });
+
+  if (stdout !== null) {
+    const lines = stdout.trim().split("\n").filter(Boolean);
+    const found = lines.some((line) => {
+      try {
+        const msg = JSON.parse(line);
+        return (
+          msg.type === "negotiation" &&
+          msg.peer_pubkey === sender.npub &&
+          msg.thread_id === pollPayload.thread_id
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (!found)
+      fail(
+        "poll.ts JSONL should contain the test message",
+        `got ${lines.length} line(s): ${lines.slice(0, 2).join(" | ") || "(empty)"}`,
+      );
+    else
+      pass(
+        `poll.ts JSONL output verified — ${lines.length} message(s) decoded`,
+      );
+  }
+
+  rmSync(pollHome, { recursive: true, force: true });
+}
+
 // ── Run all scenarios ─────────────────────────────────────────────────────────
 
 const liveNostr = process.argv.includes("--live-nostr");
 console.log("TrueMatch E2E Simulation\n");
 const originalOverride = process.env["TRUEMATCH_DIR_OVERRIDE"];
+
+function skipLive(label) {
+  console.log(`\n── ${label} ──`);
+  console.log("  (skipped — pass --live-nostr to run against real relays)");
+}
 
 try {
   await scenario1();
@@ -693,8 +1203,15 @@ try {
   if (liveNostr) {
     await scenario9();
   } else {
-    console.log("\n── Scenario 9: Live Nostr round-trip ──");
-    console.log("  (skipped — pass --live-nostr to run against real relays)");
+    skipLive("Scenario 9: Live Nostr round-trip");
+  }
+  await scenario10();
+  if (liveNostr) {
+    await scenario11();
+    await scenario12();
+  } else {
+    skipLive("Scenario 11: Multi-party live Nostr");
+    skipLive("Scenario 12: poll.ts JSONL output");
   }
 } finally {
   if (originalOverride === undefined) {
