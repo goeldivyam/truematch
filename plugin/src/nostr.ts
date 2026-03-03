@@ -16,24 +16,27 @@ export const DEFAULT_RELAYS = [
   "wss://nostr.mom",
 ];
 
-// NIP-04 kind for encrypted DMs
+// NIP-04 kind for encrypted DMs.
+// NOTE: NIP-04 is deprecated by the Nostr protocol in favour of NIP-17 (gift-wrapped DMs).
+// NIP-17 hides sender, recipient, and timestamp from relay operators. A future version of
+// TrueMatch should migrate to NIP-17 / NIP-59 for stronger metadata privacy.
 const KIND_ENCRYPTED_DM = 4;
 
-async function encryptMessage(
+function encryptMessage(
   senderNsec: string,
   recipientNpub: string,
   message: TrueMatchMessage,
-): Promise<string> {
+): string {
   const plaintext = JSON.stringify(message);
   return nip04.encrypt(senderNsec, recipientNpub, plaintext);
 }
 
-async function decryptMessage(
+function decryptMessage(
   recipientNsec: string,
   senderNpub: string,
   ciphertext: string,
-): Promise<TrueMatchMessage> {
-  const plaintext = await nip04.decrypt(recipientNsec, senderNpub, ciphertext);
+): TrueMatchMessage {
+  const plaintext = nip04.decrypt(recipientNsec, senderNpub, ciphertext);
   return JSON.parse(plaintext) as TrueMatchMessage;
 }
 
@@ -43,7 +46,7 @@ export async function publishMessage(
   message: TrueMatchMessage,
   relays: string[] = DEFAULT_RELAYS,
 ): Promise<void> {
-  const ciphertext = await encryptMessage(senderNsec, recipientNpub, message);
+  const ciphertext = encryptMessage(senderNsec, recipientNpub, message);
 
   const eventTemplate = {
     kind: KIND_ENCRYPTED_DM,
@@ -95,7 +98,7 @@ export async function subscribeToMessages(
 
         const senderNpub = event.pubkey;
         try {
-          const message = await decryptMessage(
+          const message = decryptMessage(
             recipientNsec,
             senderNpub,
             event.content,

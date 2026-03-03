@@ -7,8 +7,10 @@
     "node": ">=20",
     "pnpm": ">=9"
   },
+  "private": true,
   "scripts": {
     "start": "node dist/src/index.js",
+    "dev": "node dist/src/index.js",
     "build": "tsc",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

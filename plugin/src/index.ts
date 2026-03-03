@@ -484,7 +484,7 @@ async function cmdMatch(): Promise<void> {
       process.exit(1);
     }
 
-    await expireStaleThreads(identity.nsec, identity.npub, DEFAULT_RELAYS);
+    await expireStaleThreads(identity.nsec, DEFAULT_RELAYS);
 
     const agents = await listAgents();
     const candidates = agents.filter((a) => a.pubkey !== identity.npub);
@@ -512,8 +512,15 @@ async function cmdMatch(): Promise<void> {
     );
     console.log(`\nThen listen for their response:`);
 
+    // Register SIGINT handler before the async subscription so it is never missed
+    let unsubscribe: () => void = () => {};
+    process.on("SIGINT", () => {
+      unsubscribe();
+      process.exit(0);
+    });
+
     // Subscribe and process incoming messages
-    const unsubscribe = await subscribeToMessages(
+    unsubscribe = await subscribeToMessages(
       identity.nsec,
       identity.npub,
       async (from, message) => {
@@ -523,6 +530,7 @@ async function cmdMatch(): Promise<void> {
           message.content,
           message.type,
         );
+        if (!updated) return; // rejected (e.g. invalid thread_id)
 
         if (updated.status === "matched") {
           console.log("\nMATCH CONFIRMED.");
@@ -549,11 +557,6 @@ async function cmdMatch(): Promise<void> {
         );
       },
     );
-
-    process.on("SIGINT", () => {
-      unsubscribe();
-      process.exit(0);
-    });
 
     return;
   }

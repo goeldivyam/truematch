@@ -1,7 +1,7 @@
 // NOTE: Throughout this codebase, "nsec" refers to the raw hex-encoded private key
 // (32 bytes as a 64-char hex string), NOT the bech32 "nsec1..." encoding used by
 // Nostr clients. Do not pass bech32-encoded keys to any function expecting nsec.
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +26,7 @@ export async function loadIdentity(): Promise<TrueMatchIdentity | null> {
   return JSON.parse(raw) as TrueMatchIdentity;
 }
 
-export async function generateIdentity(): Promise<TrueMatchIdentity> {
+async function generateIdentity(): Promise<TrueMatchIdentity> {
   await ensureDir();
   const secretKey = generateSecretKey();
   const pubkey = getPublicKey(secretKey);
@@ -35,8 +35,11 @@ export async function generateIdentity(): Promise<TrueMatchIdentity> {
     npub: pubkey,
     created_at: new Date().toISOString(),
   };
-  await writeFile(IDENTITY_FILE, JSON.stringify(identity, null, 2), "utf8");
-  await chmod(IDENTITY_FILE, 0o600); // owner read/write only
+  // Write with 0o600 mode atomically — avoids a TOCTOU window between writeFile + chmod
+  await writeFile(IDENTITY_FILE, JSON.stringify(identity, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return identity;
 }
 

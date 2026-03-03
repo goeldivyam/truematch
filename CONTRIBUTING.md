@@ -20,7 +20,7 @@ Thanks for your interest in contributing. TrueMatch is early stage — the best 
 
 ```bash
 pnpm install
-cp .env.example .env        # fill in TURSO_URL, TURSO_AUTH_TOKEN, ENCRYPTION_KEY
+cp .env.example .env        # fill in TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, CONTACT_ENCRYPTION_KEY
 pnpm build                  # compiles api/ + src/
 pnpm dev                    # starts the registry on port 3000
 ```

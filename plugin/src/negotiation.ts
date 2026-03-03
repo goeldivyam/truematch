@@ -25,7 +25,14 @@ async function ensureThreadsDir(): Promise<void> {
   }
 }
 
+// UUID v4 pattern — all wire-supplied thread IDs must match before being used as filenames
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 function threadFile(thread_id: string): string {
+  if (!UUID_V4_RE.test(thread_id)) {
+    throw new Error(`Invalid thread_id format: ${thread_id}`);
+  }
   return join(THREADS_DIR, `${thread_id}.json`);
 }
 
@@ -53,9 +60,13 @@ export async function listActiveThreads(): Promise<NegotiationState[]> {
   const threads: NegotiationState[] = [];
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
-    const raw = await readFile(join(THREADS_DIR, f), "utf8");
-    const t = JSON.parse(raw) as NegotiationState;
-    if (t.status === "in_progress") threads.push(t);
+    try {
+      const raw = await readFile(join(THREADS_DIR, f), "utf8");
+      const t = JSON.parse(raw) as NegotiationState;
+      if (t.status === "in_progress") threads.push(t);
+    } catch {
+      // Skip corrupted thread files rather than aborting the entire listing
+    }
   }
   return threads;
 }
@@ -63,7 +74,6 @@ export async function listActiveThreads(): Promise<NegotiationState[]> {
 // Expire threads that have been silent for > 72 hours
 export async function expireStaleThreads(
   nsec: string,
-  npub: string,
   relays: string[],
 ): Promise<void> {
   const active = await listActiveThreads();
@@ -112,7 +122,10 @@ export async function receiveMessage(
   peerNpub: string,
   content: string,
   type: string,
-): Promise<NegotiationState> {
+): Promise<NegotiationState | null> {
+  // Validate thread_id from wire — reject silently to avoid leaking thread existence
+  if (!UUID_V4_RE.test(thread_id)) return null;
+
   await ensureThreadsDir();
   const now = new Date().toISOString();
 
@@ -131,6 +144,9 @@ export async function receiveMessage(
       status: "in_progress",
       messages: [],
     };
+  } else if (peerNpub !== state.peer_pubkey) {
+    // Reject messages from a different sender — prevents thread injection attacks
+    return state;
   }
 
   state.last_activity = now;

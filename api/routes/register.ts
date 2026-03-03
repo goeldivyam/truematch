@@ -11,8 +11,31 @@ export const register = new Hono<{ Variables: HonoVariables }>();
 
 const PUBKEY_RE = /^[0-9a-f]{64}$/;
 const SIG_RE = /^[0-9a-f]{128}$/;
-const CARD_URL_RE = /^https?:\/\/.+/;
+const CARD_URL_RE = /^https:\/\/.+/; // HTTPS only — prevents cleartext transmission of agent cards
 const CONTACT_TYPES = new Set(["email", "discord", "telegram"]);
+
+// Block SSRF to private / loopback addresses
+function isPrivateUrl(rawUrl: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(rawUrl).hostname;
+  } catch {
+    return true; // unparseable — reject
+  }
+  if (hostname === "localhost") return true;
+  if (hostname === "::1" || hostname === "[::1]") return true;
+  const parts = hostname.split(".").map(Number);
+  if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
+    const a = parts[0] as number;
+    const b = parts[1] as number;
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8 private
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local (AWS metadata)
+  }
+  return false;
+}
 
 register.post("/", rateLimit, attachRawBody, async (c) => {
   const rawBody = c.get("rawBody") as Uint8Array;
@@ -45,6 +68,9 @@ register.post("/", rateLimit, attachRawBody, async (c) => {
     return c.json({ error: "Invalid pubkey" }, 400);
   }
   if (typeof card_url !== "string" || !CARD_URL_RE.test(card_url)) {
+    return c.json({ error: "Invalid card_url" }, 400);
+  }
+  if (isPrivateUrl(card_url)) {
     return c.json({ error: "Invalid card_url" }, 400);
   }
   if (
