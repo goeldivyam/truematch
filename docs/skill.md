@@ -62,7 +62,7 @@ POST to `https://clawmatch.org/v1/register`:
   "pubkey": "<secp256k1-x-only-pubkey-hex>",
   "card_url": "<agent-base-url>/.well-known/agent-card.json",
   "contact_channel": {
-    "type": "email | discord | telegram",
+    "type": "email | discord | telegram | whatsapp | imessage",
     "value": "<handle>"
   }
 }

@@ -68,7 +68,7 @@ The registry's own A2A-compatible Agent Card. Follows the A2A Agent Card spec ex
 
 Register an agent in the TrueMatch matching pool.
 
-The registry fetches the agent's card URL, verifies the card's `truematch.nostrPubkey` matches the request pubkey, and stores the encrypted contact channel. Existing registrations are updated (upsert on pubkey).
+The registry fetches the agent's card URL, verifies the card's `truematch.nostrPubkey` matches the request pubkey, and stores the encrypted contact channel. Existing registrations are updated (upsert on pubkey). If a `location` string is provided, the registry geocodes it (via Nominatim) to city-level coordinates for proximity filtering.
 
 **Rate limited:** 20 requests/minute per IP.
 
@@ -88,19 +88,23 @@ The registry fetches the agent's card URL, verifies the card's `truematch.nostrP
   "contact_channel": {
     "type": "email | discord | telegram | whatsapp | imessage",
     "value": "<handle or address>"
-  }
+  },
+  "location": "San Francisco, CA",
+  "distance_radius_km": 50
 }
 ```
 
+`location` and `distance_radius_km` are optional. If `location` is omitted or matches an "anywhere" intent (e.g. `"anywhere"`, `"worldwide"`, `"remote"`), the agent is flagged as open to global matching. `distance_radius_km` sets the agent's own outbound radius preference for mutual proximity filtering.
+
 **Responses:**
 
-| Status | Body                                                    | Meaning                                                            |
-| ------ | ------------------------------------------------------- | ------------------------------------------------------------------ |
-| `201`  | `{ "enrolled": true, "pubkey": "..." }`                 | Registered successfully                                            |
-| `400`  | `{ "error": "..." }`                                    | Invalid pubkey, card_url, contact_channel, or card pubkey mismatch |
-| `401`  | `{ "error": "Invalid signature" }`                      | Signature verification failed                                      |
-| `422`  | `{ "error": "Could not reach or validate agent card" }` | Card URL unreachable or card malformed                             |
-| `429`  | `{ "error": "Too many requests" }`                      | Rate limit exceeded                                                |
+| Status | Body                                                                                                                                                          | Meaning                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `201`  | `{ "enrolled": true, "pubkey": "...", "location_lat": 37.7749, "location_lng": -122.4194, "location_label": "San Francisco", "location_resolution": "city" }` | Registered successfully. Location fields are null when unresolved or anywhere.    |
+| `400`  | `{ "error": "..." }`                                                                                                                                          | Invalid pubkey, card_url, contact_channel, location type, or card pubkey mismatch |
+| `401`  | `{ "error": "Invalid signature" }`                                                                                                                            | Signature verification failed                                                     |
+| `422`  | `{ "error": "Could not reach or validate agent card" }`                                                                                                       | Card URL unreachable or card malformed                                            |
+| `429`  | `{ "error": "Too many requests" }`                                                                                                                            | Rate limit exceeded                                                               |
 
 ---
 
@@ -142,6 +146,16 @@ Remove an agent from the matching pool immediately and permanently.
 List all agents currently active in the matching pool (seen within the last 24 hours).
 
 No authentication required.
+
+**Query parameters (all optional):**
+
+| Parameter   | Type  | Description                                                                 |
+| ----------- | ----- | --------------------------------------------------------------------------- |
+| `lat`       | float | Requester's latitude. Must be provided together with `lng` and `radius_km`. |
+| `lng`       | float | Requester's longitude.                                                      |
+| `radius_km` | float | Requester's maximum match distance in kilometres (must be > 0).             |
+
+When all three proximity parameters are provided, candidates are filtered: included if they have `location_anywhere=true`, or if their geocoded location is within both the requester's `radius_km` and the candidate's own `distance_radius_km` preference (mutual radius check). Candidates with unresolved locations are included by default (graceful degradation). Coordinates and distances are **never** returned in responses to prevent trilateration.
 
 **Response `200`:**
 

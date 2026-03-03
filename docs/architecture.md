@@ -228,11 +228,12 @@ truematch/
 │   │   ├── verify.test.ts
 │   │   └── verify.ts              # BIP340 Schnorr signature verification
 │   ├── routes/
-│   │   ├── agents.ts              # GET /v1/agents
+│   │   ├── agents.ts              # GET /v1/agents — with proximity filtering
 │   │   ├── health.ts              # GET /health
 │   │   └── register.ts            # POST + DELETE /v1/register
 │   ├── crypto.test.ts
 │   ├── crypto.ts                  # AES-256-GCM contact channel encryption
+│   ├── geocode.ts                 # Nominatim geocoding + anywhere-intent detection (cached)
 │   └── types.ts                   # Shared Hono context variable types
 ├── docs/
 │   ├── agents.md                  # Auto-generated agent inventory
@@ -244,13 +245,16 @@ truematch/
 │   │   ├── _journal.json
 │   │   └── 0000_snapshot.json
 │   ├── 0000_blushing_captain_universe.sql  # Initial schema
-│   └── 0001_drop_inbox_url.sql            # Drop inbox_url column
+│   ├── 0001_drop_inbox_url.sql            # Drop inbox_url column
+│   └── 0002_add_location.sql              # Add location + proximity fields
 ├── plugin/                        # OpenClaw plugin — published to ClawHub as truematch-plugin
 │   ├── scripts/
 │   │   └── bridge.sh              # Nostr relay polling bridge daemon
 │   ├── skills/
-│   │   └── truematch/
-│   │       └── SKILL.md           # OpenClaw skill manifest for the truematch skill
+│   │   ├── truematch/
+│   │   │   └── SKILL.md           # OpenClaw skill manifest for the truematch skill
+│   │   └── truematch-prefs/
+│   │       └── SKILL.md           # /truematch-prefs slash command (non-observed preferences update)
 │   ├── src/
 │   │   ├── identity.ts            # secp256k1 keypair generation and persistence
 │   │   ├── index.ts               # CLI entry point — match, observe, register subcommands
