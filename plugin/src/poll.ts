@@ -36,6 +36,8 @@ const DEFAULT_RELAYS = [
   "wss://nostr.mom",
 ];
 
+// NIP-04 (kind 4) is deprecated in favour of NIP-17 gift wraps (kind 1059).
+// Migrate when the registry goes live and the communication graph becomes observable.
 const KIND_ENCRYPTED_DM = 4;
 // UUID v4 — same pattern as negotiation.ts for consistent thread_id validation
 const UUID_V4_RE =
