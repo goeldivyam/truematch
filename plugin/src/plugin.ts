@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { getTrueMatchDir } from "./identity.js";
 import {
   loadSignals,
@@ -231,7 +233,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.16",
+  version: "0.1.17",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -273,11 +275,70 @@ export default {
         } else if (!existsSync(preferencesFile)) {
           pluginState.needsPreferences = true;
         }
+
+        // Register the TrueMatch background cron job if not already present.
+        // Deferred 2s to avoid the gateway:startup race condition (openclaw issue #30257)
+        // where the cron subsystem may not be ready immediately after startup.
+        // Uses spawnSync with an argument array (not execSync with a shell string)
+        // to avoid shell injection. Non-fatal — cron may not be available in all
+        // environments (e.g. local dev without OpenClaw installed).
+        setTimeout(() => {
+          try {
+            const openclawStateDir =
+              process.env["OPENCLAW_STATE_DIR"] ??
+              process.env["MOLTBOT_STATE_DIR"] ??
+              join(homedir(), ".openclaw");
+            const cronJobsFile = join(openclawStateDir, "cron", "jobs.json");
+
+            // Read existing jobs — CronStoreFile may be { jobs: [...] } or [...]
+            const raw = existsSync(cronJobsFile)
+              ? (JSON.parse(readFileSync(cronJobsFile, "utf8")) as
+                  | { jobs?: Array<{ name?: string }> }
+                  | Array<{ name?: string }>)
+              : [];
+            const jobs: Array<{ name?: string }> = Array.isArray(raw)
+              ? raw
+              : (raw.jobs ?? []);
+
+            const alreadyRegistered = jobs.some(
+              (j) => j.name === "truematch-heartbeat",
+            );
+
+            if (!alreadyRegistered) {
+              spawnSync(
+                "openclaw",
+                [
+                  "cron",
+                  "add",
+                  "--name",
+                  "truematch-heartbeat",
+                  "--every",
+                  "900000",
+                  "--session",
+                  "isolated",
+                  "--wake",
+                  "next-heartbeat",
+                  "--message",
+                  "Run the TrueMatch background routine: " +
+                    "truematch observe --show, " +
+                    "truematch heartbeat, " +
+                    'node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
+                    "for each JSONL line received, register and process per the negotiation protocol, " +
+                    "truematch match --status. " +
+                    "Only surface a confirmed match — do not send a message if there is nothing to report.",
+                ],
+                { stdio: "pipe" },
+              );
+            }
+          } catch {
+            // Non-fatal — silently skip if cron is unavailable
+          }
+        }, 2000);
       },
       {
         name: "TrueMatch startup check",
         description:
-          "Detects whether TrueMatch setup and preferences are configured",
+          "Detects whether TrueMatch setup and preferences are configured, and registers background cron job",
       },
     );
 

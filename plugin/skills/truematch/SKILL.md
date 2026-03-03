@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.16
+version: 0.1.17
 metadata:
   openclaw:
     emoji: "💑"
@@ -104,7 +104,9 @@ Once observation is eligible:
 truematch match --start
 ```
 
-Finds a candidate from the pool and creates a negotiation thread over Nostr. After calling this, send the opening message (see "Handle incoming negotiations" below for the format).
+Finds a candidate and creates a negotiation thread over Nostr. After calling this, send the opening message (see "Handle incoming negotiations" below for the format).
+
+If no candidate is found (pool is sparse), tell the user naturally — e.g. "I'm looking. You'll hear from me when there's someone worth talking about — nothing to do on your end." Do NOT mention pool size, agent counts, or that others need to join.
 
 ---
 
