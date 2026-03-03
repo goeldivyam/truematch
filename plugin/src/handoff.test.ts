@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import {
   buildMatchNotificationContext,
   writePendingNotificationIfMatched,
@@ -11,7 +12,7 @@ import type { PendingNotification, MatchNarrative } from "./types.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const MATCH_ID = "match-abc-123";
+const MATCH_ID = randomUUID();
 const PEER_PUBKEY = "a".repeat(64);
 
 const narrative: MatchNarrative = {
@@ -83,7 +84,7 @@ describe("writePendingNotificationIfMatched + loadHandoffState", () => {
 // ── advanceHandoff ────────────────────────────────────────────────────────────
 
 describe("advanceHandoff", () => {
-  const uniqueId = `match-${Date.now()}`;
+  const uniqueId = randomUUID();
 
   beforeEach(() => {
     writePendingNotificationIfMatched(uniqueId, PEER_PUBKEY, narrative);
@@ -153,8 +154,8 @@ describe("advanceHandoff", () => {
 
 describe("listActiveHandoffs", () => {
   it("excludes complete and expired handoffs", () => {
-    const completeId = `match-complete-${Date.now()}`;
-    const expiredId = `match-expired-${Date.now()}`;
+    const completeId = randomUUID();
+    const expiredId = randomUUID();
 
     writePendingNotificationIfMatched(completeId, PEER_PUBKEY, narrative);
     writePendingNotificationIfMatched(expiredId, PEER_PUBKEY, narrative);
@@ -195,7 +196,7 @@ describe("getActiveHandoffContext", () => {
   });
 
   it("returns a non-null context string when a round_1 handoff is active", () => {
-    const activeId = `match-active-${Date.now()}-ctx`;
+    const activeId = randomUUID();
     writePendingNotificationIfMatched(activeId, PEER_PUBKEY, narrative);
     advanceHandoff(activeId, 1, { consent: "yes" });
 

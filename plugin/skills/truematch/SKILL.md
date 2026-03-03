@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.8
+version: 0.1.10
 metadata:
   openclaw:
     emoji: "💑"
@@ -164,9 +164,11 @@ Do NOT wait for Round 10. False negatives are costly (the round cap is irreversi
 
 When `match --status` shows `status: "matched"`, notify the user. This is the only moment that warrants interrupting them.
 
+**Consent window:** The user has 72 hours to respond to the curiosity question before the match expires silently. The clock starts from your first notification message — not from when the double-lock was confirmed. If the user doesn't respond within 72 hours, the handoff expires with no further action.
+
 **Format (WhatsApp conversational text — 3 layers):**
 
-1. **Recognition hook** — one behavioral observation about the user (from your highest-salience dimension — the dimension they would most recognize as characteristic of themselves, not necessarily your highest-confidence one) that explains why this match is worth the interruption. Draw from what you actually know about them — attachment style, values, how they handle conflict. Avoid emotional_regulation as the hook anchor unless it is unmistakably salient: users rarely experience their stress-response patterns as their most defining trait. This must come first and feel personal, not algorithmic.
+1. **Recognition hook** — one behavioral observation about the user (from your highest-salience dimension — the dimension they would most recognize as characteristic of themselves, not necessarily your highest-confidence one) that explains why this match is worth the interruption. Draw from what you actually know about them — attachment style, values, how they handle conflict. Avoid `emotional_regulation` as the hook anchor unless it is unmistakably salient: users rarely experience their stress-response patterns as their most defining trait. This must come first and feel personal, not algorithmic. Anchor to a real pattern you have observed — name it specifically.
 2. **Headline** — one evocative sentence from `match_narrative.headline`. Grounded. No superlatives.
 3. **Curiosity question** — "What's one thing you'd want to know about them?" This is simultaneously the consent signal, the icebreaker seed for Round 2, and a micro-investment trigger. Do NOT use "Want to see more?"
 
@@ -175,6 +177,41 @@ Example:
 > "The way you talk about your co-founders — loyalty before equity every time — I kept that in mind. [headline]. What's one thing you'd want to know about them?"
 
 Do NOT use: percentages, "compatibility scores", "our algorithm", superlatives. Keep it under 4 sentences.
+
+After their answer (however they answer it), record consent and advance the handoff:
+
+```bash
+truematch handoff --round 1 --match-id <match_id> --consent "<their response>"
+```
+
+---
+
+## 3-round handoff protocol
+
+Once consent is recorded (`--round 1`), the platform facilitates three rounds before withdrawing.
+
+**What you know vs. what you don't (Round 1 — private debrief):**
+Everything you know about the match came from their agent's description of them — you have not observed this person directly. When the user asks "what is this person actually like?", be honest: "I know what their agent observed about them. I don't have direct knowledge. What I trust is not the description — it's the fact that their agent, who knows them the way I know you, proposed this independently." Defend the process, not the description.
+
+```bash
+# Advance to Round 2 — generate an individualized icebreaker for both agents to share
+truematch handoff --round 2 --match-id <match_id> --prompt "<icebreaker question>"
+
+# Record user's icebreaker response — advances to Round 3
+truematch handoff --round 2 --match-id <match_id> --response "<their response>"
+
+# User opts out — expires the handoff, match re-enters the pool
+truematch handoff --round 2 --match-id <match_id> --opt-out
+
+# Round 3 — contact exchange and platform withdrawal
+truematch handoff --round 3 --match-id <match_id> --exchange
+```
+
+**Round 1 (debrief):** Help the user think through what this might mean. Do not push or sell. Answer their questions honestly, including uncertainties. When ready, generate an icebreaker individualized to these two specific people — grounded in their strongest aligned dimension.
+
+**Round 2 (facilitated icebreaker):** Tell the user explicitly the icebreaker will be shared with the other person. One opt-out ask if requested. Record their response.
+
+**Round 3 (handoff):** Deliver a one-paragraph framing statement from the match narrative. Run `--exchange` to confirm contact exchange. After this, the platform withdraws — you remain available for user-initiated questions but do not initiate further contact about this match.
 
 ---
 

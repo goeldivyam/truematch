@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { SimplePool, verifyEvent, type Event, type Filter } from "nostr-tools";
 import { nip04 } from "nostr-tools";
+import { hexToBytes } from "nostr-tools/utils";
 import { getTrueMatchDir } from "./identity.js";
 import { DEFAULT_RELAYS } from "./nostr.js";
 import type {
@@ -154,8 +155,9 @@ async function main(): Promise<void> {
         const senderNpub = event.pubkey;
         let message: TrueMatchMessage;
         try {
+          // nip04.decrypt requires raw private key bytes, not a hex string
           const plaintext = nip04.decrypt(
-            identity.nsec,
+            hexToBytes(identity.nsec),
             senderNpub,
             event.content,
           );

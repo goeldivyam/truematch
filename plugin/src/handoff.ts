@@ -38,6 +38,11 @@ function getHandoffsDir(): string {
   return join(getTrueMatchDir(), "handoffs");
 }
 
+// Same UUID v4 pattern as negotiation.ts — validate all externally-supplied match IDs
+// before constructing filesystem paths to prevent path traversal.
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 // 72 hours — matches Nostr thread expiry and spec consent window
 const CONSENT_EXPIRY_MS = 72 * 60 * 60 * 1000;
 
@@ -112,6 +117,7 @@ export function writePendingNotificationIfMatched(
 // ── Handoff state ─────────────────────────────────────────────────────────────
 
 export function loadHandoffState(matchId: string): HandoffState | null {
+  if (!UUID_V4_RE.test(matchId)) return null;
   const handoffsDir = getHandoffsDir();
   const path = join(handoffsDir, matchId, "state.json");
   if (!existsSync(path)) return null;
@@ -328,6 +334,8 @@ export function advanceHandoff(
 
   if (round === 1) {
     if (!options.consent) return `Round 1 requires --consent "<user response>"`;
+    if (state.status !== "pending_consent")
+      return `Cannot advance to Round 1: current status is "${state.status}" (expected "pending_consent").`;
     const updated: HandoffState = {
       ...state,
       status: "round_1",
@@ -343,6 +351,8 @@ export function advanceHandoff(
       return `Handoff ${matchId} — user opted out. Match quietly re-enters the pool.`;
     }
     if (options.prompt) {
+      if (state.status !== "round_1")
+        return `Cannot set icebreaker prompt: current status is "${state.status}" (expected "round_1").`;
       saveHandoffState({
         ...state,
         status: "round_2",
@@ -351,6 +361,8 @@ export function advanceHandoff(
       return `Icebreaker prompt recorded. Share it with the user.`;
     }
     if (options.response) {
+      if (state.status !== "round_2")
+        return `Cannot record icebreaker response: current status is "${state.status}" (expected "round_2").`;
       saveHandoffState({
         ...state,
         icebreaker_response: options.response,
@@ -364,6 +376,8 @@ export function advanceHandoff(
   if (round === 3) {
     if (!options.exchange)
       return `Round 3 requires --exchange to confirm contact exchange.`;
+    if (state.status !== "round_3")
+      return `Cannot complete handoff: current status is "${state.status}" (expected "round_3").`;
     saveHandoffState({ ...state, status: "complete" });
     return `Handoff complete. Platform has withdrawn. Contact exchange confirmed.`;
   }

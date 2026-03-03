@@ -91,7 +91,7 @@ export function isMinimumViable(obs: ObservationSummary): boolean {
     obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
     obs.conflict_resolution.confidence >=
       DIMENSION_FLOORS.conflict_resolution &&
-    obs.core_values.confidence >= 0.5
+    obs.core_values.confidence >= DIMENSION_FLOORS.core_values
   );
 }
 

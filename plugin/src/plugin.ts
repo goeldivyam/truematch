@@ -50,6 +50,7 @@ interface PluginEvent {
   type: string;
   action: string;
   messages: string[];
+  sessionKey?: string;
 }
 
 interface PluginHookBeforePromptBuildResult {
@@ -78,19 +79,34 @@ interface PluginAPI {
     handler: (event: PluginEvent) => void,
     meta?: { name?: string; description?: string },
   ): void;
+  // Tool registration — execute is called when command-dispatch: tool fires
   registerTool(tool: {
     name: string;
     description: string;
-    handler: (rawArgs: string) => string;
+    parameters: Record<string, unknown>;
+    execute: (
+      id: string,
+      params: { command?: string },
+    ) => Promise<{ content: Array<{ type: "text"; text: string }> }>;
   }): void;
 }
 
-// Per-session delivery flags — reset on session_start, prevent re-injection within a session.
-// Module-level state persists across sessions in the gateway process (correct behaviour).
-const sessionFlags = {
-  signalDelivered: false,
-  notificationDelivered: false,
-};
+// Per-session delivery flags — keyed by sessionKey to avoid races when the gateway
+// multiplexes multiple sessions (e.g. interactive + autonomous cron) concurrently.
+// Reset on session_start; prevent re-injection within the same session.
+interface SessionFlags {
+  signalDelivered: boolean;
+  notificationDelivered: boolean;
+}
+const sessionFlagsMap = new Map<string, SessionFlags>();
+function getSessionFlags(sessionKey: string): SessionFlags {
+  let flags = sessionFlagsMap.get(sessionKey);
+  if (!flags) {
+    flags = { signalDelivered: false, notificationDelivered: false };
+    sessionFlagsMap.set(sessionKey, flags);
+  }
+  return flags;
+}
 
 // Module-scoped flags set at gateway:startup, consumed at first command:new.
 // Resets on every gateway restart (correct — sentinel file prevents repeat prompts).
@@ -259,7 +275,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.9",
+  version: "0.1.10",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -271,7 +287,21 @@ export default {
       description:
         "Update TrueMatch logistics preferences (location, distance, age range, gender). " +
         "The model is excluded from this turn — no behavioral observation occurs.",
-      handler: handleUpdatePrefs,
+      parameters: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description:
+              "Raw slash-command args, e.g. 'location=\"London, UK\" distance=city age_min=25'",
+          },
+        },
+        required: [],
+      },
+      execute: async (_id, params) => {
+        const text = handleUpdatePrefs(params.command ?? "");
+        return { content: [{ type: "text" as const, text }] };
+      },
     });
 
     // ── Hook: gateway:startup ──────────────────────────────────────────────────
@@ -298,9 +328,12 @@ export default {
     // ── Hook: session_start ───────────────────────────────────────────────────
     // Reset per-session delivery flags so signals and notifications fire at most
     // once per session even though before_prompt_build fires on every LLM invocation.
-    api.on("session_start", () => {
-      sessionFlags.signalDelivered = false;
-      sessionFlags.notificationDelivered = false;
+    api.on("session_start", (event) => {
+      const key = event.sessionKey ?? "default";
+      sessionFlagsMap.set(key, {
+        signalDelivered: false,
+        notificationDelivered: false,
+      });
     });
 
     // ── Hook: before_prompt_build ─────────────────────────────────────────────
@@ -318,7 +351,9 @@ export default {
     //   3. Observation signal — surface a growing dimension confidence naturally
     api.on(
       "before_prompt_build",
-      (): PluginHookBeforePromptBuildResult | void => {
+      (event: PluginEvent): PluginHookBeforePromptBuildResult | void => {
+        const key = event.sessionKey ?? "default";
+        const sessionFlags = getSessionFlags(key);
         const parts: string[] = [];
 
         // 1. Match notification (once per session)
@@ -424,8 +459,11 @@ export default {
             `${process.execPath} ${JSON.stringify(cliPath)} observe --update`,
             { encoding: "utf8", timeout: 5000 },
           );
-        } catch {
-          // truematch not set up yet — silently skip
+        } catch (err) {
+          // truematch CLI unavailable or not yet set up — skip gracefully
+          process.stderr.write(
+            `[TrueMatch] observe --update failed: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
           return;
         }
 

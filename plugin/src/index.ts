@@ -738,11 +738,15 @@ async function cmdMatch(): Promise<void> {
 
         if (updated.status === "matched") {
           if (updated.match_narrative) {
-            writePendingNotificationIfMatched(
-              updated.thread_id,
-              updated.peer_pubkey,
-              updated.match_narrative,
-            );
+            try {
+              writePendingNotificationIfMatched(
+                updated.thread_id,
+                updated.peer_pubkey,
+                updated.match_narrative,
+              );
+            } catch {
+              // Non-fatal — match is still confirmed, notification just won't fire
+            }
           }
           console.log("\nMATCH CONFIRMED.");
           console.log(

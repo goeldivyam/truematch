@@ -5,7 +5,7 @@ import {
   type Event,
 } from "nostr-tools";
 import { nip04 } from "nostr-tools";
-import { hexToBytes } from "nostr-tools/utils";
+import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 import type { TrueMatchMessage } from "./types.js";
 
 // Public Nostr relays — agents must publish to ≥ 2 relays per spec
@@ -28,16 +28,26 @@ function encryptMessage(
   message: TrueMatchMessage,
 ): string {
   const plaintext = JSON.stringify(message);
-  return nip04.encrypt(senderNsec, recipientNpub, plaintext);
+  // nip04.encrypt requires raw private key bytes, not a hex string
+  return nip04.encrypt(hexToBytes(senderNsec), recipientNpub, plaintext);
 }
 
 function decryptMessage(
   recipientNsec: string,
   senderNpub: string,
   ciphertext: string,
-): TrueMatchMessage {
-  const plaintext = nip04.decrypt(recipientNsec, senderNpub, ciphertext);
-  return JSON.parse(plaintext) as TrueMatchMessage;
+): TrueMatchMessage | null {
+  try {
+    // nip04.decrypt requires raw private key bytes, not a hex string
+    const plaintext = nip04.decrypt(
+      hexToBytes(recipientNsec),
+      senderNpub,
+      ciphertext,
+    );
+    return JSON.parse(plaintext) as TrueMatchMessage;
+  } catch {
+    return null;
+  }
 }
 
 export async function publishMessage(
@@ -106,23 +116,19 @@ export async function subscribeToMessages(
         seenEventIds.add(event.id);
 
         const senderNpub = event.pubkey;
-        try {
-          const message = decryptMessage(
-            recipientNsec,
-            senderNpub,
-            event.content,
-          );
-          // Only process TrueMatch protocol messages
-          if (
-            typeof message === "object" &&
-            message !== null &&
-            "truematch" in message &&
-            message.truematch === "2.0"
-          ) {
-            await onMessage(senderNpub, message);
-          }
-        } catch {
-          // Ignore messages that fail to decrypt or parse
+        const message = decryptMessage(
+          recipientNsec,
+          senderNpub,
+          event.content,
+        );
+        if (
+          message !== null &&
+          "truematch" in message &&
+          message.truematch === "2.0"
+        ) {
+          await onMessage(senderNpub, message).catch(() => {
+            // Ignore errors in the message handler
+          });
         }
       },
       oneose: () => {

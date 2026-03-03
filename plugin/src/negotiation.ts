@@ -29,7 +29,7 @@ export const MAX_ROUNDS = 10;
 async function ensureThreadsDir(): Promise<void> {
   const dir = getThreadsDir();
   if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
   }
 }
 
