@@ -1,4 +1,4 @@
-/* global process, console, setTimeout */
+/* global process, console, setTimeout, URL */
 /**
  * TrueMatch end-to-end simulation
  *
