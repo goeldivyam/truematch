@@ -19,7 +19,6 @@ export function getTrueMatchDir(): string {
   return process.env["TRUEMATCH_DIR_OVERRIDE"] ?? join(homedir(), ".truematch");
 }
 export const TRUEMATCH_DIR = getTrueMatchDir();
-const IDENTITY_FILE = join(getTrueMatchDir(), "identity.json");
 
 export async function ensureDir(): Promise<void> {
   const dir = getTrueMatchDir();

@@ -1,3 +1,4 @@
+/* global process, console */
 /**
  * TrueMatch end-to-end simulation
  *
@@ -44,32 +45,6 @@ function setAgent(dir) {
   process.env["TRUEMATCH_DIR_OVERRIDE"] = dir;
 }
 
-function eligibleObs() {
-  const dim = {
-    confidence: 0.8,
-    observation_count: 8,
-    behavioral_context_diversity: "medium",
-  };
-  return {
-    updated_at: new Date().toISOString(),
-    eligibility_computed_at: new Date().toISOString(),
-    matching_eligible: true,
-    conversation_count: 5,
-    observation_span_days: 4,
-    attachment: { ...dim },
-    core_values: { ...dim },
-    communication: { ...dim },
-    emotional_regulation: { ...dim, confidence: 0.75 },
-    humor: { ...dim },
-    life_velocity: { ...dim, confidence: 0.65 },
-    dealbreakers: { ...dim, confidence: 0.9 },
-    conflict_resolution: { ...dim },
-    interdependence_model: { ...dim, confidence: 0.65 },
-    dealbreaker_gate_state: "confirmed",
-    inferred_intent_category: "serious",
-  };
-}
-
 function pass(label) {
   console.log(`  ✓ ${label}`);
 }
@@ -82,7 +57,7 @@ function section(title) {
 }
 
 // Import modules once — TRUEMATCH_DIR_OVERRIDE controls which dir they use per call.
-const { initiateNegotiation, receiveMessage, proposeMatch, loadThread } =
+const { initiateNegotiation, receiveMessage, proposeMatch } =
   await import("./dist/negotiation.js");
 const { writePendingNotificationIfMatched, loadPendingNotification } =
   await import("./dist/handoff.js");
