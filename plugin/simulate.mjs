@@ -1,4 +1,4 @@
-/* global process, console */
+/* global process, console, setTimeout */
 /**
  * TrueMatch end-to-end simulation
  *
@@ -7,8 +7,14 @@
  *   Scenario 2 — Bob declines (sends "end")
  *   Scenario 3 — Pending notification written on match
  *   Scenario 4 — Per-peer inbound thread DoS cap
+ *   Scenario 5 — Thread expiry (72h stale timeout)
+ *   Scenario 6 — Round cap (10-round hard limit)
+ *   Scenario 7 — Handoff rounds 1 → 2 → 3 → complete + opt-out path
+ *   Scenario 8 — NIP-04 encrypt/decrypt round-trip + wrong-key rejection
+ *   Scenario 9 — Live Nostr round-trip (opt-in: --live-nostr)
  *
- * Bypasses live Nostr relays — tests the negotiation state machine directly.
+ * Scenarios 1-8 bypass live Nostr relays and test the state machine directly.
+ * Scenario 9 publishes a real NIP-04 DM to public relays and verifies receipt.
  * Uses TRUEMATCH_DIR_OVERRIDE to give each agent an isolated temp directory
  * without reloading modules.
  */
@@ -18,6 +24,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { bytesToHex } from "nostr-tools/utils";
+import {
+  publishMessage,
+  subscribeToMessages,
+  DEFAULT_RELAYS,
+} from "./dist/nostr.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,10 +68,21 @@ function section(title) {
 }
 
 // Import modules once — TRUEMATCH_DIR_OVERRIDE controls which dir they use per call.
-const { initiateNegotiation, receiveMessage, proposeMatch } =
-  await import("./dist/negotiation.js");
-const { writePendingNotificationIfMatched, loadPendingNotification } =
-  await import("./dist/handoff.js");
+const {
+  initiateNegotiation,
+  receiveMessage,
+  proposeMatch,
+  sendMessage,
+  loadThread,
+  saveThread,
+  expireStaleThreads,
+} = await import("./dist/negotiation.js");
+const {
+  writePendingNotificationIfMatched,
+  loadPendingNotification,
+  loadHandoffState,
+  advanceHandoff,
+} = await import("./dist/handoff.js");
 
 // ── Scenario 1: Successful double-lock match ──────────────────────────────────
 
@@ -352,8 +374,310 @@ async function scenario4() {
   rmSync(dirA, { recursive: true, force: true });
 }
 
+// ── Scenario 5: Thread expiry (72h timeout) ──────────────────────────────────
+
+async function scenario5() {
+  section("Scenario 5: Thread expiry (72h stale timeout)");
+
+  const dirA = makeTestDir("a5");
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+  writeIdentity(dirA, alice);
+
+  setAgent(dirA);
+  const thread = await initiateNegotiation(bob.npub);
+
+  // Backdate last_activity by 73 hours to trigger expiry
+  const stale = await loadThread(thread.thread_id);
+  stale.last_activity = new Date(
+    Date.now() - 73 * 60 * 60 * 1000,
+  ).toISOString();
+  await saveThread(stale);
+
+  // expireStaleThreads with empty relays (no-op publish)
+  await expireStaleThreads(alice.nsec, []);
+
+  const expired = await loadThread(thread.thread_id);
+  if (expired?.status !== "expired")
+    fail("thread should be expired", expired?.status);
+  pass("Stale thread (73h) correctly expired");
+
+  // A fresh thread should NOT be expired
+  const fresh = await initiateNegotiation(bob.npub);
+  await expireStaleThreads(alice.nsec, []);
+  const stillActive = await loadThread(fresh.thread_id);
+  if (stillActive?.status !== "in_progress")
+    fail("fresh thread should still be in_progress", stillActive?.status);
+  pass("Fresh thread not affected by expiry sweep");
+
+  rmSync(dirA, { recursive: true, force: true });
+}
+
+// ── Scenario 6: Round cap (10-round hard limit) ───────────────────────────────
+
+async function scenario6() {
+  section("Scenario 6: Round cap (10-round hard limit)");
+
+  const dirA = makeTestDir("a6");
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+  writeIdentity(dirA, alice);
+
+  setAgent(dirA);
+  const thread = await initiateNegotiation(bob.npub);
+
+  // Force round_count to 10 directly
+  const state = await loadThread(thread.thread_id);
+  state.round_count = 10;
+  await saveThread(state);
+
+  // sendMessage should throw — round cap enforced on free-form messages
+  let threw = false;
+  try {
+    await sendMessage(alice.nsec, thread.thread_id, "one more message", []);
+  } catch {
+    threw = true;
+  }
+  if (!threw) fail("sendMessage should throw at round cap", "did not throw");
+  pass("sendMessage correctly blocked at round_count=10");
+
+  // proposeMatch should still succeed — you can always propose even at cap
+  const proposed = await proposeMatch(
+    alice.nsec,
+    thread.thread_id,
+    {
+      headline: "test",
+      strengths: [],
+      watch_points: [],
+      confidence_summary: "test",
+    },
+    [],
+  );
+  if (!proposed.we_proposed)
+    fail("proposeMatch should succeed at round cap", "we_proposed=false");
+  pass(
+    "proposeMatch still allowed at round_count=10 (cap only blocks free-form messages)",
+  );
+
+  rmSync(dirA, { recursive: true, force: true });
+}
+
+// ── Scenario 7: Handoff rounds 1 → 2 → 3 → complete + opt-out ────────────────
+
+async function scenario7() {
+  section("Scenario 7: Handoff round progression + opt-out");
+
+  const dirA = makeTestDir("a7");
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+  writeIdentity(dirA, alice);
+
+  setAgent(dirA);
+
+  // Set up a matched thread and write the notification/handoff state
+  const thread = await initiateNegotiation(bob.npub);
+  const narrative = {
+    headline: "Deep values alignment",
+    strengths: ["humor", "communication"],
+    watch_points: ["life velocity"],
+    confidence_summary: "0.82 composite",
+  };
+  await receiveMessage(
+    thread.thread_id,
+    bob.npub,
+    JSON.stringify(narrative),
+    "match_propose",
+  );
+  const matched = await proposeMatch(
+    alice.nsec,
+    thread.thread_id,
+    narrative,
+    [],
+  );
+  if (matched.status !== "matched") {
+    fail("precondition: should be matched", matched.status);
+    return;
+  }
+
+  writePendingNotificationIfMatched(
+    thread.thread_id,
+    bob.npub,
+    matched.match_narrative,
+  );
+
+  const matchId = thread.thread_id;
+
+  // Round 1: consent
+  const r1 = advanceHandoff(matchId, 1, {
+    consent: "I'm curious about this person",
+  });
+  const s1 = loadHandoffState(matchId);
+  if (s1?.status !== "round_1") fail("status after round 1", s1?.status);
+  pass(`Round 1 recorded — status=round_1 (${r1.slice(0, 40)}...)`);
+
+  // Round 2: icebreaker prompt
+  advanceHandoff(matchId, 2, {
+    prompt: "What's a project you're most proud of?",
+  });
+  const s2 = loadHandoffState(matchId);
+  if (s2?.status !== "round_2") fail("status after round 2 prompt", s2?.status);
+  pass("Round 2 icebreaker prompt recorded — status=round_2");
+
+  // Round 2: response
+  advanceHandoff(matchId, 2, { response: "Building TrueMatch actually" });
+  const s2r = loadHandoffState(matchId);
+  if (s2r?.status !== "round_3")
+    fail("status after round 2 response", s2r?.status);
+  pass("Round 2 response recorded — status=round_3");
+
+  // Round 3: exchange
+  const r3 = advanceHandoff(matchId, 3, { exchange: true });
+  const s3 = loadHandoffState(matchId);
+  if (s3?.status !== "complete") fail("status after round 3", s3?.status);
+  pass(`Round 3 complete — platform withdrawn (${r3.slice(0, 40)}...)`);
+
+  // Opt-out path: new handoff, round 1, then round 2 opt-out
+  const thread2 = await initiateNegotiation(bob.npub);
+  await receiveMessage(
+    thread2.thread_id,
+    bob.npub,
+    JSON.stringify(narrative),
+    "match_propose",
+  );
+  const matched2 = await proposeMatch(
+    alice.nsec,
+    thread2.thread_id,
+    narrative,
+    [],
+  );
+  writePendingNotificationIfMatched(
+    thread2.thread_id,
+    bob.npub,
+    matched2.match_narrative,
+  );
+  advanceHandoff(thread2.thread_id, 1, { consent: "ok" });
+  advanceHandoff(thread2.thread_id, 2, { optOut: true });
+  const sOpt = loadHandoffState(thread2.thread_id);
+  if (sOpt?.status !== "expired")
+    fail("opt-out should set status=expired", sOpt?.status);
+  pass("Opt-out path correctly sets status=expired");
+
+  rmSync(dirA, { recursive: true, force: true });
+}
+
+// ── Scenario 8: NIP-04 encrypt/decrypt round-trip ────────────────────────────
+
+async function scenario8() {
+  section("Scenario 8: NIP-04 encrypt/decrypt round-trip");
+
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+
+  // Import the internal crypto functions via the compiled nostr module
+  // We test by publishing to [] (no-op) then verifying the encryptMessage/decryptMessage
+  // round-trip using nostr-tools directly with the correct key format.
+  const { nip04 } = await import("nostr-tools");
+
+  const plaintext = JSON.stringify({
+    truematch: "2.0",
+    thread_id: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    type: "negotiation",
+    timestamp: new Date().toISOString(),
+    content: "Hello from Alice",
+  });
+
+  const ciphertext = nip04.encrypt(alice.nsec, bob.npub, plaintext);
+  const decrypted = nip04.decrypt(bob.nsec, alice.npub, ciphertext);
+
+  if (decrypted !== plaintext) fail("decrypted content mismatch", decrypted);
+  pass("NIP-04 encrypt → decrypt round-trip: content matches");
+
+  // Verify wrong key cannot decrypt
+  const charlie = makeIdentity();
+  let threw = false;
+  try {
+    nip04.decrypt(charlie.nsec, alice.npub, ciphertext);
+  } catch {
+    threw = true;
+  }
+  if (!threw) fail("wrong key should fail to decrypt", "did not throw");
+  pass("Wrong key correctly fails to decrypt");
+}
+
+// ── Scenario 9: Live Nostr round-trip (opt-in via --live-nostr) ───────────────
+//
+// Publishes a real NIP-04 encrypted DM from Alice to Bob over public relays,
+// subscribes as Bob, and verifies the message arrives and decrypts correctly.
+// Skipped by default — pass --live-nostr to run.
+
+async function scenario9() {
+  section("Scenario 5: Live Nostr round-trip (real public relays)");
+
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+
+  const payload = {
+    truematch: "2.0",
+    thread_id: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    type: "negotiation",
+    timestamp: new Date().toISOString(),
+    content: "Live Nostr round-trip test — " + Date.now(),
+  };
+
+  // Bob subscribes before Alice publishes so we don't miss the event
+  const since = Math.floor(Date.now() / 1000) - 5;
+  let _received = null;
+  let unsubscribe;
+
+  const receivePromise = new Promise((resolve) => {
+    subscribeToMessages(
+      bob.nsec,
+      bob.npub,
+      async (fromPubkey, message) => {
+        if (fromPubkey === alice.npub && message.content === payload.content) {
+          _received = message;
+          resolve();
+        }
+      },
+      DEFAULT_RELAYS,
+      since,
+    ).then((unsub) => {
+      unsubscribe = unsub;
+    });
+  });
+
+  // Give subscription a moment to establish before publishing
+  await new Promise((r) => setTimeout(r, 1500));
+
+  // Alice publishes to real relays
+  try {
+    await publishMessage(alice.nsec, bob.npub, payload, DEFAULT_RELAYS);
+    pass("Alice published message to live relays");
+  } catch (err) {
+    fail("Alice failed to publish", err.message);
+    unsubscribe?.();
+    return;
+  }
+
+  // Wait up to 15 seconds for Bob to receive
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("timeout after 15s")), 15000),
+  );
+
+  try {
+    await Promise.race([receivePromise, timeout]);
+    pass(`Bob received message from relay — content matches`);
+    pass(`Relay round-trip confirmed on: ${DEFAULT_RELAYS.join(", ")}`);
+  } catch (err) {
+    fail("Bob did not receive message", err.message);
+  } finally {
+    unsubscribe?.();
+  }
+}
+
 // ── Run all scenarios ─────────────────────────────────────────────────────────
 
+const liveNostr = process.argv.includes("--live-nostr");
 console.log("TrueMatch E2E Simulation\n");
 const originalOverride = process.env["TRUEMATCH_DIR_OVERRIDE"];
 
@@ -362,6 +686,16 @@ try {
   await scenario2();
   await scenario3();
   await scenario4();
+  await scenario5();
+  await scenario6();
+  await scenario7();
+  await scenario8();
+  if (liveNostr) {
+    await scenario9();
+  } else {
+    console.log("\n── Scenario 9: Live Nostr round-trip ──");
+    console.log("  (skipped — pass --live-nostr to run against real relays)");
+  }
 } finally {
   if (originalOverride === undefined) {
     delete process.env["TRUEMATCH_DIR_OVERRIDE"];
