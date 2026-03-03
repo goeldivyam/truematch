@@ -277,8 +277,8 @@ truematch/
 │   │   ├── test-setup.ts          # Vitest setup — redirects HOME to a per-run temp directory
 │   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
-│   ├── package.json               # v0.1.3
-│   ├── simulate.mjs               # E2E simulation script — 4 scenarios (no live relays); uses TRUEMATCH_DIR_OVERRIDE for isolation
+│   ├── package.json               # v0.1.4
+│   ├── simulate.mjs               # E2E simulation script — 12 scenarios (scenarios 9, 11, 12 opt-in via --live-nostr); uses TRUEMATCH_DIR_OVERRIDE for isolation
 │   ├── tsconfig.json
 │   └── vitest.config.ts           # Plugin test config — includes src/**/*.test.ts
 ├── skill/
