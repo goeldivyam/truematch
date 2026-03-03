@@ -1,4 +1,9 @@
-import { SimplePool, finalizeEvent, type Event } from "nostr-tools";
+import {
+  SimplePool,
+  finalizeEvent,
+  verifyEvent,
+  type Event,
+} from "nostr-tools";
 import { nip04 } from "nostr-tools";
 import { hexToBytes } from "nostr-tools/utils";
 import type { TrueMatchMessage } from "./types.js";
@@ -70,6 +75,8 @@ export async function subscribeToMessages(
   since?: number,
 ): Promise<() => void> {
   const pool = new SimplePool();
+  // Deduplicate events delivered by multiple relays
+  const seenEventIds = new Set<string>();
 
   const sub = pool.subscribeMany(
     relays,
@@ -80,6 +87,12 @@ export async function subscribeToMessages(
     },
     {
       onevent: async (event: Event) => {
+        // NIP-01: verify event signature before processing
+        if (!verifyEvent(event)) return;
+        // Skip duplicates (same event from multiple relays)
+        if (seenEventIds.has(event.id)) return;
+        seenEventIds.add(event.id);
+
         const senderNpub = event.pubkey;
         try {
           const message = await decryptMessage(

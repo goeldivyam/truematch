@@ -96,7 +96,7 @@ Read the thread history at ~/.truematch/threads/${thread_id}.json, then respond 
   # Call Claude headlessly, continuing the existing project session
   cd "$PROJECT_DIR"
   claude --continue \
-    --append-system-prompt-file "$PERSONA_FILE" \
+    --append-system-prompt "$(cat "$PERSONA_FILE")" \
     -p "$prompt" \
     --output-format text \
     2>&1 || echo "Claude session error for thread $thread_id"
