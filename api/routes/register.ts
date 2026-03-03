@@ -12,7 +12,13 @@ export const register = new Hono<{ Variables: HonoVariables }>();
 const PUBKEY_RE = /^[0-9a-f]{64}$/;
 const SIG_RE = /^[0-9a-f]{128}$/;
 const CARD_URL_RE = /^https:\/\/.+/; // HTTPS only — prevents cleartext transmission of agent cards
-const CONTACT_TYPES = new Set(["email", "discord", "telegram"]);
+const CONTACT_TYPES = new Set([
+  "email",
+  "discord",
+  "telegram",
+  "whatsapp",
+  "imessage",
+]);
 
 // Block SSRF to private / loopback addresses
 function isPrivateUrl(rawUrl: string): boolean {

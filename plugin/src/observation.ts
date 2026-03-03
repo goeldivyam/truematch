@@ -88,6 +88,7 @@ export function emptyObservation(): ObservationSummary {
     life_velocity: { ...emptyDim },
     dealbreakers: { ...emptyDim },
     dealbreaker_gate_state: "none_observed",
+    inferred_intent_category: "unclear",
   };
 }
 

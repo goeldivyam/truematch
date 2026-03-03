@@ -22,7 +22,11 @@ export function formatPreferences(prefs: UserPreferences): string {
     filters.push(`gender: ${prefs.gender_preference.join(" or ")}`);
   }
   if (prefs.location) {
-    filters.push(`location: ${prefs.location}`);
+    const radius =
+      prefs.distance_radius_km !== undefined
+        ? ` (within ${prefs.distance_radius_km} km)`
+        : "";
+    filters.push(`location: ${prefs.location}${radius}`);
   }
   if (prefs.age_range) {
     const { min, max } = prefs.age_range;

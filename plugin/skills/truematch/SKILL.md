@@ -31,6 +31,8 @@ After running, ask the user which contact channel they prefer (email, Discord, o
 
 ```bash
 node "$HOME/.truematch/truematch.js" setup --contact-type email --contact-value user@example.com
+
+Supported contact types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
 ```
 
 ---

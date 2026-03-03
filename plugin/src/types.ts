@@ -15,6 +15,8 @@ export type DealbreakersGateState =
   | "below_floor" // has constraints but none clear the 0.50 confidence floor yet
   | "none_observed"; // no dealbreaker signals at all — blocks pool entry
 
+export type InferredIntentCategory = "serious" | "casual" | "unclear";
+
 export interface ObservationSummary {
   // Manifest metadata
   updated_at: string; // ISO 8601 — when Claude last wrote this file
@@ -36,6 +38,11 @@ export interface ObservationSummary {
 
   // Dealbreaker gate state (3-valued — can't collapse to boolean)
   dealbreaker_gate_state: DealbreakersGateState;
+
+  // Inferred relationship intent — derived from life_velocity + relationship orientation signals.
+  // NOT user-set. Used for pre-negotiation early termination only when both agents have
+  // non-unclear categories at ≥0.65 confidence on the underlying dimensions.
+  inferred_intent_category?: InferredIntentCategory;
 }
 
 // ── User preferences — Layer 0 eligibility predicates ────────────────────────
@@ -44,7 +51,8 @@ export interface ObservationSummary {
 
 export interface UserPreferences {
   gender_preference?: string[]; // e.g. ["woman", "non-binary"] — empty = no filter
-  location?: string; // plain text, e.g. "London, UK" — agent interprets
+  location?: string; // plain text, e.g. "London, UK" — geocoded server-side
+  distance_radius_km?: number; // derived from natural-language selection at onboarding
   age_range?: { min?: number; max?: number };
   // serious/casual is NOT here — agent infers this from life_velocity + behavior
 }
@@ -60,7 +68,12 @@ export interface TrueMatchIdentity {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
-export type ContactType = "email" | "discord" | "telegram";
+export type ContactType =
+  | "email"
+  | "discord"
+  | "telegram"
+  | "whatsapp"
+  | "imessage";
 
 export interface ContactChannel {
   type: ContactType;
