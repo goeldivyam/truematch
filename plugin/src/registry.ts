@@ -1,19 +1,29 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { TRUEMATCH_DIR, signPayload } from "./identity.js";
+import { getTrueMatchDir, signPayload } from "./identity.js";
 import type {
   ContactChannel,
   RegistrationRecord,
   TrueMatchIdentity,
 } from "./types.js";
 
-const REGISTRY_URL = "https://clawmatch.org";
-const REGISTRATION_FILE = join(TRUEMATCH_DIR, "registration.json");
+// Re-read each call so TRUEMATCH_REGISTRY_URL_OVERRIDE takes effect in tests/simulation.
+function getRegistryUrl(): string {
+  return (
+    process.env["TRUEMATCH_REGISTRY_URL_OVERRIDE"] ?? "https://clawmatch.org"
+  );
+}
+
+// Re-read each call so TRUEMATCH_DIR_OVERRIDE takes effect in simulation.
+function getRegistrationFile(): string {
+  return join(getTrueMatchDir(), "registration.json");
+}
 
 export async function loadRegistration(): Promise<RegistrationRecord | null> {
-  if (!existsSync(REGISTRATION_FILE)) return null;
-  const raw = await readFile(REGISTRATION_FILE, "utf8");
+  const file = getRegistrationFile();
+  if (!existsSync(file)) return null;
+  const raw = await readFile(file, "utf8");
   return JSON.parse(raw) as RegistrationRecord;
 }
 
@@ -37,7 +47,7 @@ export async function register(
   const rawBody = new TextEncoder().encode(body);
   const sig = signPayload(identity.nsec, rawBody);
 
-  const res = await fetch(`${REGISTRY_URL}/v1/register`, {
+  const res = await fetch(`${getRegistryUrl()}/v1/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -71,7 +81,11 @@ export async function register(
     location_label: resp.location_label ?? null,
     location_resolution: resp.location_resolution ?? null,
   };
-  await writeFile(REGISTRATION_FILE, JSON.stringify(record, null, 2), "utf8");
+  await writeFile(
+    getRegistrationFile(),
+    JSON.stringify(record, null, 2),
+    "utf8",
+  );
   return record;
 }
 
@@ -80,7 +94,7 @@ export async function deregister(identity: TrueMatchIdentity): Promise<void> {
   const rawBody = new TextEncoder().encode(body);
   const sig = signPayload(identity.nsec, rawBody);
 
-  const res = await fetch(`${REGISTRY_URL}/v1/register`, {
+  const res = await fetch(`${getRegistryUrl()}/v1/register`, {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json",
@@ -94,11 +108,12 @@ export async function deregister(identity: TrueMatchIdentity): Promise<void> {
     throw new Error(`Registry error ${res.status}: ${err.error}`);
   }
 
-  if (existsSync(REGISTRATION_FILE)) {
+  const file = getRegistrationFile();
+  if (existsSync(file)) {
     const rec = await loadRegistration();
     if (rec) {
       rec.enrolled = false;
-      await writeFile(REGISTRATION_FILE, JSON.stringify(rec, null, 2), "utf8");
+      await writeFile(file, JSON.stringify(rec, null, 2), "utf8");
     }
   }
 }
@@ -112,7 +127,7 @@ export interface ProximityOpts {
 export async function listAgents(
   proximity?: ProximityOpts,
 ): Promise<Array<{ pubkey: string; cardUrl: string; lastSeen: string }>> {
-  const url = new URL(`${REGISTRY_URL}/v1/agents`);
+  const url = new URL(`${getRegistryUrl()}/v1/agents`);
   if (proximity) {
     url.searchParams.set("lat", String(proximity.lat));
     url.searchParams.set("lng", String(proximity.lng));

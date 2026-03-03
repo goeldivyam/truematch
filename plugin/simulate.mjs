@@ -15,16 +15,13 @@
  *   Scenario 10 — Multi-party offline: 6 agents, 3 pairs (match/decline/match)
  *   Scenario 11 — Multi-party live Nostr: 6 agents, 3 pairs (opt-in: --live-nostr)
  *   Scenario 12 — poll.ts JSONL output via child process (opt-in: --live-nostr)
+ *   Scenario 13 — match --start with mock registry: register/list/deregister + candidate selection
  *
- * Scenarios 1-8, 10 bypass live Nostr relays and test the state machine directly.
+ * Scenarios 1-8, 10, 13 bypass live Nostr relays and test the state machine directly.
  * Scenarios 9, 11, 12 publish real NIP-04 DMs to public relays (--live-nostr flag).
- * Uses TRUEMATCH_DIR_OVERRIDE to give each agent an isolated temp directory
- * without reloading modules.
+ * Uses TRUEMATCH_DIR_OVERRIDE + TRUEMATCH_REGISTRY_URL_OVERRIDE for full isolation.
  *
  * What is NOT covered by simulation:
- *   - match --start with registry candidates: requires a live registry or mock HTTP
- *     server (clawmatch.org/v1/agents). Testable with a TRUEMATCH_REGISTRY_URL_OVERRIDE
- *     source change + a local stub server.
  *   - bridge.sh daemon loop: shell process management / Claude pipe integration.
  *     poll.ts itself is tested in Scenario 12; the loop is not.
  */
@@ -33,6 +30,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +90,7 @@ const {
   loadThread,
   saveThread,
   expireStaleThreads,
+  listActiveThreads,
 } = await import("./dist/negotiation.js");
 const {
   writePendingNotificationIfMatched,
@@ -99,6 +98,8 @@ const {
   loadHandoffState,
   advanceHandoff,
 } = await import("./dist/handoff.js");
+const { register, deregister, listAgents, loadRegistration } =
+  await import("./dist/registry.js");
 
 // ── Scenario 1: Successful double-lock match ──────────────────────────────────
 
@@ -1180,6 +1181,206 @@ async function scenario12() {
   rmSync(pollHome, { recursive: true, force: true });
 }
 
+// ── Mock registry server (used by Scenario 13) ───────────────────────────────
+//
+// Minimal in-process HTTP stub for POST /v1/register, DELETE /v1/register,
+// and GET /v1/agents. No signature verification — simulation only.
+// Listens on 127.0.0.1 with an OS-assigned port to avoid conflicts.
+
+function startMockRegistry() {
+  const agents = new Map(); // pubkey → { pubkey, cardUrl, lastSeen }
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, `http://127.0.0.1`);
+
+    if (req.method === "GET" && url.pathname === "/v1/agents") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          agents: [...agents.values()].map((a) => ({
+            pubkey: a.pubkey,
+            cardUrl: a.cardUrl,
+            lastSeen: a.lastSeen,
+          })),
+        }),
+      );
+      return;
+    }
+
+    let body = "";
+    req.on("data", (d) => {
+      body += d;
+    });
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body);
+        if (req.method === "POST" && url.pathname === "/v1/register") {
+          agents.set(data.pubkey, {
+            pubkey: data.pubkey,
+            cardUrl: data.card_url,
+            lastSeen: new Date().toISOString(),
+          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              enrolled: true,
+              pubkey: data.pubkey,
+              location_lat: null,
+              location_lng: null,
+              location_label: null,
+              location_resolution: null,
+            }),
+          );
+          return;
+        }
+        if (req.method === "DELETE" && url.pathname === "/v1/register") {
+          agents.delete(data.pubkey);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+      } catch {
+        res.writeHead(400);
+        res.end();
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        agents,
+        close: () => new Promise((r) => server.close(r)),
+      });
+    });
+  });
+}
+
+// ── Scenario 13: match --start with mock registry ────────────────────────────
+//
+// Exercises the full match --start candidate selection loop against an in-process
+// HTTP stub. Tests: register, listAgents, candidate filtering (exclude self +
+// active threads), thread initiation, and deregister.
+//
+// TRUEMATCH_REGISTRY_URL_OVERRIDE redirects all registry.ts HTTP calls to the
+// stub without touching the real clawmatch.org.
+
+async function scenario13() {
+  section("Scenario 13: match --start with mock registry");
+
+  const mock = await startMockRegistry();
+  process.env["TRUEMATCH_REGISTRY_URL_OVERRIDE"] = mock.url;
+
+  const dirA = makeTestDir("alice13");
+  const dirB = makeTestDir("bob13");
+  const dirC = makeTestDir("carol13");
+  const alice = makeIdentity();
+  const bob = makeIdentity();
+  const carol = makeIdentity();
+  writeIdentity(dirA, alice);
+  writeIdentity(dirB, bob);
+  writeIdentity(dirC, carol);
+
+  try {
+    // ── Registration ───────────────────────────────────────────────────────
+    setAgent(dirA);
+    const regA = await register(alice, "https://alice.example.com/card", {
+      type: "email",
+      value: "alice@example.com",
+    });
+    if (!regA.enrolled) fail("Alice should be enrolled", regA.enrolled);
+    else pass("Alice registered with mock registry");
+
+    setAgent(dirB);
+    await register(bob, "https://bob.example.com/card", {
+      type: "email",
+      value: "bob@example.com",
+    });
+    pass("Bob registered with mock registry");
+
+    setAgent(dirC);
+    await register(carol, "https://carol.example.com/card", {
+      type: "email",
+      value: "carol@example.com",
+    });
+    pass("Carol registered with mock registry");
+
+    // ── listAgents returns all 3 ───────────────────────────────────────────
+    const all = await listAgents();
+    if (all.length !== 3) fail("listAgents should return 3 agents", all.length);
+    else pass(`listAgents returns ${all.length} agents`);
+
+    // ── Candidate selection from Alice's perspective ───────────────────────
+    // Mirrors the logic in cmdMatch() --start: exclude self + active threads
+    setAgent(dirA);
+    const activeThreads = await listActiveThreads();
+    const activePeers = new Set(activeThreads.map((t) => t.peer_pubkey));
+    const candidates = all.filter(
+      (a) => a.pubkey !== alice.npub && !activePeers.has(a.pubkey),
+    );
+    if (candidates.length !== 2)
+      fail(
+        "Alice should see 2 candidates (not herself)",
+        `got ${candidates.length}`,
+      );
+    else pass("Candidate selection: Alice sees Bob + Carol (self excluded)");
+
+    // ── Initiate a thread with one candidate ──────────────────────────────
+    const peer = candidates[0];
+    const thread = await initiateNegotiation(peer.pubkey);
+    if (!thread.thread_id)
+      fail("Thread should have been created", "no thread_id");
+    else
+      pass(
+        `Thread initiated with ${peer.pubkey.slice(0, 12)}... — id: ${thread.thread_id.slice(0, 8)}...`,
+      );
+
+    // ── Active thread exclusion ────────────────────────────────────────────
+    const activeThreads2 = await listActiveThreads();
+    const activePeers2 = new Set(activeThreads2.map((t) => t.peer_pubkey));
+    const candidates2 = all.filter(
+      (a) => a.pubkey !== alice.npub && !activePeers2.has(a.pubkey),
+    );
+    if (candidates2.length !== 1)
+      fail(
+        "After thread creation, peer should be excluded from candidate pool",
+        `got ${candidates2.length}`,
+      );
+    else pass("Active thread peer correctly excluded from candidate pool");
+
+    // ── Deregistration ────────────────────────────────────────────────────
+    setAgent(dirB);
+    await deregister(bob);
+    const allAfter = await listAgents();
+    if (allAfter.length !== 2)
+      fail(
+        "After Bob deregisters, registry should have 2 agents",
+        `got ${allAfter.length}`,
+      );
+    else pass("Deregistration: Bob removed from registry");
+
+    // Local registration.json should mark enrolled=false
+    const regBAfter = await loadRegistration();
+    if (regBAfter?.enrolled !== false)
+      fail(
+        "Bob's registration.json should show enrolled=false",
+        regBAfter?.enrolled,
+      );
+    else pass("Local registration.json correctly marks enrolled=false");
+  } finally {
+    delete process.env["TRUEMATCH_REGISTRY_URL_OVERRIDE"];
+    await mock.close();
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+    rmSync(dirC, { recursive: true, force: true });
+  }
+}
+
 // ── Run all scenarios ─────────────────────────────────────────────────────────
 
 const liveNostr = process.argv.includes("--live-nostr");
@@ -1213,6 +1414,7 @@ try {
     skipLive("Scenario 11: Multi-party live Nostr");
     skipLive("Scenario 12: poll.ts JSONL output");
   }
+  await scenario13();
 } finally {
   if (originalOverride === undefined) {
     delete process.env["TRUEMATCH_DIR_OVERRIDE"];
