@@ -18,7 +18,6 @@ import type { TrueMatchIdentity } from "./types.js";
 export function getTrueMatchDir(): string {
   return process.env["TRUEMATCH_DIR_OVERRIDE"] ?? join(homedir(), ".truematch");
 }
-export const TRUEMATCH_DIR = getTrueMatchDir();
 
 export async function ensureDir(): Promise<void> {
   const dir = getTrueMatchDir();
@@ -30,8 +29,12 @@ export async function ensureDir(): Promise<void> {
 export async function loadIdentity(): Promise<TrueMatchIdentity | null> {
   const identityFile = join(getTrueMatchDir(), "identity.json");
   if (!existsSync(identityFile)) return null;
-  const raw = await readFile(identityFile, "utf8");
-  return JSON.parse(raw) as TrueMatchIdentity;
+  try {
+    const raw = await readFile(identityFile, "utf8");
+    return JSON.parse(raw) as TrueMatchIdentity;
+  } catch {
+    return null;
+  }
 }
 
 async function generateIdentity(): Promise<TrueMatchIdentity> {

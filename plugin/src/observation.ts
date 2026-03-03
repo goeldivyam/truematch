@@ -1,10 +1,12 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { TRUEMATCH_DIR } from "./identity.js";
+import { getTrueMatchDir } from "./identity.js";
 import type { ObservationSummary, DimensionMeta } from "./types.js";
 
-const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
+function getObservationFile(): string {
+  return join(getTrueMatchDir(), "observation.json");
+}
 
 // Global minimums — cross-session sanity check
 const GLOBAL_MIN_CONVERSATIONS = 2;
@@ -33,9 +35,13 @@ export const DIMENSION_FLOORS = {
 export const ELIGIBILITY_FRESHNESS_HOURS = 72;
 
 export async function loadObservation(): Promise<ObservationSummary | null> {
-  if (!existsSync(OBSERVATION_FILE)) return null;
-  const raw = await readFile(OBSERVATION_FILE, "utf8");
-  return JSON.parse(raw) as ObservationSummary;
+  if (!existsSync(getObservationFile())) return null;
+  try {
+    const raw = await readFile(getObservationFile(), "utf8");
+    return JSON.parse(raw) as ObservationSummary;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveObservation(obs: ObservationSummary): Promise<void> {
@@ -46,7 +52,12 @@ export async function saveObservation(obs: ObservationSummary): Promise<void> {
     eligibility_computed_at: now,
     matching_eligible: isEligible(obs),
   };
-  await writeFile(OBSERVATION_FILE, JSON.stringify(updated, null, 2), "utf8");
+  const dir = getTrueMatchDir();
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(getObservationFile(), JSON.stringify(updated, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export function isEligible(obs: ObservationSummary): boolean {
@@ -67,6 +78,20 @@ export function isEligible(obs: ObservationSummary): boolean {
       DIMENSION_FLOORS.conflict_resolution &&
     obs.interdependence_model.confidence >=
       DIMENSION_FLOORS.interdependence_model
+  );
+}
+
+// Minimum Viable Evidence (MVE) for a quick match proposal — 4 core dimensions only.
+// Agents can propose if MVE is met even when the full isEligible() bar isn't reached.
+// Dealbreaker floor is non-negotiable and never lowered.
+export function isMinimumViable(obs: ObservationSummary): boolean {
+  if (obs.dealbreaker_gate_state !== "confirmed") return false;
+  return (
+    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers &&
+    obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
+    obs.conflict_resolution.confidence >=
+      DIMENSION_FLOORS.conflict_resolution &&
+    obs.core_values.confidence >= 0.5
   );
 }
 

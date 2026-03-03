@@ -151,6 +151,11 @@ export interface PendingNotification {
   peer_pubkey: string;
   narrative: MatchNarrative;
   confirmed_at: string; // ISO 8601
+  // Recognition hook: one behavioral observation about the user that explains why this
+  // match is worth interrupting them for. Makes the notification land as an "aha moment"
+  // rather than an algorithm output. Drawn from the highest-confidence observed dimension.
+  recognition_dimension?: DimensionKey;
+  recognition_hook_text?: string; // e.g. "the way you shut down when conversations get loud"
 }
 
 export type HandoffRound = 1 | 2 | 3;
@@ -174,6 +179,7 @@ export interface HandoffState {
   narrative: MatchNarrative;
   created_at: string; // ISO 8601
   consent_at?: string; // set when user responds to the match notification
+  proposal_round?: number; // which negotiation round the proposal was made — used to calibrate watch_points
   icebreaker_prompt?: string; // generated in Round 2
   icebreaker_response?: string; // user's response in Round 2
 }

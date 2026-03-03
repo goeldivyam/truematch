@@ -162,24 +162,26 @@ type DealbreakersGateState =
 
 Absence of dealbreaker signals (`"none_observed"`) and unconfirmed constraints (`"below_floor"`) are both blocking — they represent different kinds of insufficient data.
 
-**Seven observed dimensions:**
+**Nine observed dimensions:**
 
-| Dimension            | Framework                                    | Max signals |
-| -------------------- | -------------------------------------------- | ----------- |
-| Attachment style     | Bartholomew & Horowitz (1991) — 4 categories | 10          |
-| Core values          | Schwartz (1992) — ranked                     | 12          |
-| Communication style  | Leary circumplex + response rhythm           | 8           |
-| Emotional regulation | Gross (1998) + Gottman flooding signals      | 10          |
-| Humor orientation    | Martin (2007) — styles + irony literacy      | 6           |
-| Life velocity        | Levinson/Arnett/Carstensen — 5 phases        | 8           |
-| Dealbreakers         | Binary constraints + confidence              | 5           |
+| Dimension             | Framework                                    | Max signals |
+| --------------------- | -------------------------------------------- | ----------- |
+| Attachment style      | Bartholomew & Horowitz (1991) — 4 categories | 10          |
+| Core values           | Schwartz (1992) — ranked                     | 12          |
+| Communication style   | Leary circumplex + response rhythm           | 8           |
+| Emotional regulation  | Gross (1998) + Gottman flooding signals      | 10          |
+| Humor orientation     | Martin (2007) — styles + irony literacy      | 6           |
+| Life velocity         | Levinson/Arnett/Carstensen — 5 phases        | 8           |
+| Dealbreakers          | Binary constraints + confidence              | 5           |
+| Conflict resolution   | Gottman Four Horsemen — 4 styles             | 8           |
+| Interdependence model | Baxter & Montgomery — connection-autonomy    | 6           |
 
 **Minimum viable observation (pool entry gate):**
 
 - ≥ 2 conversations (cross-session sanity check)
 - ≥ 2 days observation span (ensures at least two distinct behavioral contexts)
 - `dealbreaker_gate_state` must be `"confirmed"` — not `"none_observed"` or `"below_floor"`
-- Per-dimension confidence floors: `dealbreakers` ≥ 0.60, `emotional_regulation` ≥ 0.60, `attachment` ≥ 0.55, `core_values` ≥ 0.55, `communication` ≥ 0.50, `humor` ≥ 0.50, `life_velocity` ≥ 0.50
+- Per-dimension confidence floors: `dealbreakers` ≥ 0.60, `emotional_regulation` ≥ 0.60, `attachment` ≥ 0.55, `core_values` ≥ 0.55, `communication` ≥ 0.55, `conflict_resolution` ≥ 0.55, `humor` ≥ 0.50, `life_velocity` ≥ 0.50, `interdependence_model` ≥ 0.50
 - Manifest must not be stale (recomputed within 72 hours)
 
 An agent that does not meet these criteria cannot enter the matching pool.
@@ -219,9 +221,20 @@ Checked after every exchange:
 
 1. **Dealbreaker collision** at confidence ≥ 0.50 → send `end` immediately
 2. **10-round hard cap** reached without proposal → send `end`
-3. **Information saturation** (last 2 exchanges produced no inference revision) → proceed to pre-termination check
+3. **Information saturation** (last 2 exchanges produced no inference revision) → run MVE check; propose if met, otherwise send `end`
 
-**Pre-termination check:** Before proposing or terminating, the agent confirms it can articulate: (1) the strongest case for the match, (2) the strongest case against it, (3) the dimension it is least confident about.
+**Pre-termination check (run before proposing or sending `end`):** The agent confirms it can articulate: (1) the strongest case for the match, (2) the strongest case against it, (3) the dimension it is least confident about.
+
+**Proposal is a standing offer** — run the MVE check after every round starting round 3. Do not wait for information saturation. Propose as soon as Tier 1 + Tier 2 dimensions clear their floors and no incompatibilities are active.
+
+**Round guidance:**
+
+- Round 1: Disclose Tier 1 dimensions. Terminate immediately on any failure.
+- Round 2: First peer behavioral signals. Only propose if exceptionally strong.
+- Round 3+: Run MVE check after every round.
+- Round 4: Actively evaluate for proposal — default shifts from "ask question" to "should I propose?"
+- Round 7: Forced MVE check. Propose if met; ask one targeted question on the single blocking dimension only.
+- Rounds 8–10: Warning zone. Something has gone wrong if you reach here without proposing.
 
 ### Counter-Argument Pass
 
@@ -233,7 +246,9 @@ Before proposing: if the agent's confidence on a key dimension is significantly 
 
 ### Double-Lock: Match Proposal
 
-Both agents must independently send `match_propose`. A match is only confirmed when both have proposed. Receiving `match_propose` from a peer does not influence the agent's own evaluation — it continues independently.
+Both agents must independently send `match_propose`. A match is only confirmed when both have proposed.
+
+**Double-lock signal:** Receiving `match_propose` from a peer is a strong signal to run the MVE check immediately. If all T1 and T2 dimensions clear their floors, propose without further delay — peer confidence is evidence, not a constraint. If the MVE check fails, continue normally; the peer's proposal does not pressure you.
 
 If either agent sends `end`, the match does not proceed.
 
@@ -318,18 +333,14 @@ truematch match --decline --thread <thread_id>
 
 When a match is confirmed, both users are notified **simultaneously** via their OpenClaw agent. The notification has three layers:
 
-**Layer 1 — Headline**
+**Layer 1 — Recognition hook**
+One behavioral observation about the user (not about the match) drawn from the agent's highest-salience observed dimension — the dimension the user would most recognize as characteristic of themselves. This makes the notification land as an "aha moment" rather than an algorithm output. Example: _"The way you talk about your co-founders — loyalty before equity every time — I kept that in mind."_
+
+**Layer 2 — Headline**
 One sentence from `match_narrative.headline`. Grounded and defensible — no superlatives, no percentages, no scores.
 
-**Layer 2 — Evidence**
-
-- 2–3 specific strengths that drove the match (from observed behaviour, not self-report)
-- 1 watch point — framed as evidence of honesty, not a warning
-- A plain-language confidence summary
-- Numerical scores are never shown to the user
-
 **Layer 3 — Consent action**
-A single free-text prompt: _"What's one thing you're most curious about?"_
+A single free-text prompt: _"What's one thing you'd want to know about them?"_
 This is simultaneously the consent signal, the seed for the Round 2 icebreaker, and a micro-investment trigger. The user has **72 hours** to respond. Expiry is silent — no rejection event is sent to the other party; the match quietly re-enters the pool.
 
 The notification explicitly states the match came from **agent observation**, not a self-reported profile.

@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.7
+version: 0.1.8
 metadata:
   openclaw:
     emoji: "💑"
@@ -27,11 +27,11 @@ Supported contact types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
 
 If identity already exists, this re-registers (upsert) without changing the keypair. After setup, generate the observation summary (see below), then start matching.
 
-**Start acknowledgment to user (2–3 sentences max):**
+**Start acknowledgment to user (2–3 sentences, 4 elements required):**
 
-> "I've started looking for a match for you. I'll work on it in the background and only interrupt you when I have something worth telling you about."
+> "I've started looking for a match for you. It could take days or a few weeks — I'll be quiet until I have something worth your attention, and nothing is final until you say so. If you want to check in anytime, just ask."
 
-Do not explain the process. Do not list steps. First-person, warm.
+The four required elements: (1) what you're doing, (2) what you will NOT do (no surprises, no sharing without their confirmation), (3) when they'll hear from you next (only on a confirmed match — set time-horizon expectations to reduce anxiety during the quiet period), (4) pull-check-in invite ("just ask" removes anxiety about the silence). Do not explain the process. Do not list steps. First-person, warm.
 
 ---
 
@@ -85,11 +85,16 @@ Finds a candidate from the pool and creates a negotiation thread over Nostr. Aft
 Run this periodically (or whenever checking for activity). Do not tell the user about individual rounds — only surface a confirmed match.
 
 ```bash
+# 0. Load your current observation of this user (needed for negotiation reasoning in isolated sessions)
+truematch observe --show
+
 # 1. Keep your registration fresh in the pool
 truematch heartbeat
 
-# 2. Poll Nostr relays for new messages (outputs JSONL, one message per line)
+# 2. Poll Nostr relays for new inbound messages (outputs JSONL, one message per line)
 node "$(npm root -g)/truematch-plugin/dist/poll.js"
+# For each JSONL line, register the message BEFORE checking status:
+# truematch match --receive '<content>' --thread <thread_id> --peer <peer_pubkey> --type <type>
 
 # 3. Check all active threads
 truematch match --status
@@ -159,15 +164,15 @@ Do NOT wait for Round 10. False negatives are costly (the round cap is irreversi
 
 When `match --status` shows `status: "matched"`, notify the user. This is the only moment that warrants interrupting them.
 
-**Format (WhatsApp conversational text):**
+**Format (WhatsApp conversational text — 3 layers):**
 
-1. Reference something specific you know about the user as the reason for the interruption — not algorithm language
-2. One evocative sentence about the match from `match_narrative.headline`
-3. Single call-to-action: _"Want to see more?"_
+1. **Recognition hook** — one behavioral observation about the user (from your highest-salience dimension — the dimension they would most recognize as characteristic of themselves, not necessarily your highest-confidence one) that explains why this match is worth the interruption. Draw from what you actually know about them — attachment style, values, how they handle conflict. Avoid emotional_regulation as the hook anchor unless it is unmistakably salient: users rarely experience their stress-response patterns as their most defining trait. This must come first and feel personal, not algorithmic.
+2. **Headline** — one evocative sentence from `match_narrative.headline`. Grounded. No superlatives.
+3. **Curiosity question** — "What's one thing you'd want to know about them?" This is simultaneously the consent signal, the icebreaker seed for Round 2, and a micro-investment trigger. Do NOT use "Want to see more?"
 
 Example:
 
-> "Given how you actually work — the build intensity, the independence model — I thought this was worth interrupting you for. [headline]. Want to see more?"
+> "The way you talk about your co-founders — loyalty before equity every time — I kept that in mind. [headline]. What's one thing you'd want to know about them?"
 
 Do NOT use: percentages, "compatibility scores", "our algorithm", superlatives. Keep it under 4 sentences.
 

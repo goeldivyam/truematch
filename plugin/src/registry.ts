@@ -23,8 +23,12 @@ function getRegistrationFile(): string {
 export async function loadRegistration(): Promise<RegistrationRecord | null> {
   const file = getRegistrationFile();
   if (!existsSync(file)) return null;
-  const raw = await readFile(file, "utf8");
-  return JSON.parse(raw) as RegistrationRecord;
+  try {
+    const raw = await readFile(file, "utf8");
+    return JSON.parse(raw) as RegistrationRecord;
+  } catch {
+    return null;
+  }
 }
 
 export async function register(
@@ -57,8 +61,13 @@ export async function register(
   });
 
   if (!res.ok) {
-    const err = (await res.json()) as { error: string };
-    throw new Error(`Registry error ${res.status}: ${err.error}`);
+    let body: string | null = null;
+    try {
+      body = ((await res.json()) as { error: string }).error;
+    } catch {
+      /* ignore — non-JSON error body */
+    }
+    throw new Error(`Registry error ${res.status}${body ? `: ${body}` : ""}`);
   }
 
   const resp = (await res.json()) as {
@@ -81,11 +90,10 @@ export async function register(
     location_label: resp.location_label ?? null,
     location_resolution: resp.location_resolution ?? null,
   };
-  await writeFile(
-    getRegistrationFile(),
-    JSON.stringify(record, null, 2),
-    "utf8",
-  );
+  await writeFile(getRegistrationFile(), JSON.stringify(record, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return record;
 }
 
@@ -104,8 +112,13 @@ export async function deregister(identity: TrueMatchIdentity): Promise<void> {
   });
 
   if (!res.ok && res.status !== 404) {
-    const err = (await res.json()) as { error: string };
-    throw new Error(`Registry error ${res.status}: ${err.error}`);
+    let body: string | null = null;
+    try {
+      body = ((await res.json()) as { error: string }).error;
+    } catch {
+      /* ignore — non-JSON error body */
+    }
+    throw new Error(`Registry error ${res.status}${body ? `: ${body}` : ""}`);
   }
 
   const file = getRegistrationFile();
@@ -113,7 +126,10 @@ export async function deregister(identity: TrueMatchIdentity): Promise<void> {
     const rec = await loadRegistration();
     if (rec) {
       rec.enrolled = false;
-      await writeFile(file, JSON.stringify(rec, null, 2), "utf8");
+      await writeFile(file, JSON.stringify(rec, null, 2), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
     }
   }
 }

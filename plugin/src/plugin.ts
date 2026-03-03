@@ -1,8 +1,8 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { getTrueMatchDir } from "./identity.js";
 import {
   loadSignals,
   saveSignals,
@@ -17,11 +17,6 @@ import {
   getActiveHandoffContext,
 } from "./handoff.js";
 import type { ObservationSummary } from "./types.js";
-
-const TRUEMATCH_DIR = join(homedir(), ".truematch");
-const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
-const PREFERENCES_FILE = join(TRUEMATCH_DIR, "preferences.json");
-const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 
 /**
  * OpenClaw plugin entry point.
@@ -40,10 +35,11 @@ const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
  */
 
 function loadObservation(): ObservationSummary | null {
-  if (!existsSync(OBSERVATION_FILE)) return null;
+  const observationFile = join(getTrueMatchDir(), "observation.json");
+  if (!existsSync(observationFile)) return null;
   try {
     return JSON.parse(
-      readFileSync(OBSERVATION_FILE, "utf8"),
+      readFileSync(observationFile, "utf8"),
     ) as ObservationSummary;
   } catch {
     return null;
@@ -111,10 +107,11 @@ interface StoredPreferences {
 }
 
 function loadPrefs(): StoredPreferences {
-  if (!existsSync(PREFERENCES_FILE)) return {};
+  const preferencesFile = join(getTrueMatchDir(), "preferences.json");
+  if (!existsSync(preferencesFile)) return {};
   try {
     return JSON.parse(
-      readFileSync(PREFERENCES_FILE, "utf8"),
+      readFileSync(preferencesFile, "utf8"),
     ) as StoredPreferences;
   } catch {
     return {};
@@ -122,7 +119,11 @@ function loadPrefs(): StoredPreferences {
 }
 
 function savePrefs(prefs: StoredPreferences): void {
-  writeFileSync(PREFERENCES_FILE, JSON.stringify(prefs, null, 2), "utf8");
+  const preferencesFile = join(getTrueMatchDir(), "preferences.json");
+  writeFileSync(preferencesFile, JSON.stringify(prefs, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 function formatPrefs(prefs: StoredPreferences): string {
@@ -258,7 +259,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.0",
+  version: "0.1.9",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -279,9 +280,11 @@ export default {
     api.registerHook(
       "gateway:startup",
       () => {
-        if (!existsSync(IDENTITY_FILE)) {
+        const identityFile = join(getTrueMatchDir(), "identity.json");
+        const preferencesFile = join(getTrueMatchDir(), "preferences.json");
+        if (!existsSync(identityFile)) {
           pluginState.needsSetup = true;
-        } else if (!existsSync(PREFERENCES_FILE)) {
+        } else if (!existsSync(preferencesFile)) {
           pluginState.needsPreferences = true;
         }
       },

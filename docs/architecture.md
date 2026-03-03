@@ -252,7 +252,7 @@ truematch/
 │   └── 0002_add_location.sql              # Add location + proximity fields
 ├── plugin/                        # OpenClaw plugin — published to ClawHub as truematch-plugin
 │   ├── scripts/
-│   │   └── bridge.sh              # Nostr relay polling bridge daemon
+│   │   └── bridge.sh              # Nostr relay polling bridge daemon (shell injection + cd subshell fixed)
 │   ├── skills/
 │   │   ├── truematch/
 │   │   │   └── SKILL.md           # OpenClaw skill manifest for the truematch skill
@@ -262,24 +262,25 @@ truematch/
 │   │   ├── handoff.test.ts        # Tests: notification context, advanceHandoff rounds, handoff state
 │   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management; uses getTrueMatchDir() dynamically
 │   │   ├── identity.ts            # secp256k1 keypair generation and persistence; exports getTrueMatchDir() (respects TRUEMATCH_DIR_OVERRIDE)
-│   │   ├── index.ts               # CLI entry point — match, observe, handoff, register subcommands
+│   │   ├── index.ts               # CLI entry point — match, observe, handoff, register subcommands; try/catch on --propose path
 │   │   ├── negotiation.test.ts    # Tests: state machine, double-lock, round cap, sender validation
-│   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap); uses getTrueMatchDir() dynamically
-│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication); publishMessage is a no-op when relays=[]
+│   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap); try/catch on loadThread
+│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication); exports DEFAULT_RELAYS
 │   │   ├── observation.test.ts    # Tests: isEligible, isStale, eligibilityReport (9-dimension model)
-│   │   ├── observation.ts         # ObservationSummary load/save/eligibility (9 dimension floors)
-│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks
-│   │   ├── poll.ts                # One-shot Nostr relay poller — called by bridge.sh, outputs JSONL to stdout
-│   │   ├── preferences.ts         # UserPreferences load/save/format helpers
-│   │   ├── registry.ts            # TrueMatch registry registration and deregistration; respects TRUEMATCH_REGISTRY_URL_OVERRIDE
+│   │   ├── observation.ts         # ObservationSummary load/save/eligibility (9 dimension floors); mkdir + mode 0o600 + try/catch
+│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks; uses getTrueMatchDir()
+│   │   ├── poll.ts                # One-shot Nostr relay poller — called by bridge.sh, outputs JSONL to stdout; imports DEFAULT_RELAYS from nostr.ts
+│   │   ├── preferences.ts         # UserPreferences load/save/format helpers; mode 0o600 + try/catch
+│   │   ├── registry.ts            # TrueMatch registry registration and deregistration; mode 0o600 + try/catch; respects TRUEMATCH_REGISTRY_URL_OVERRIDE
 │   │   ├── signals.test.ts        # Tests: pickPendingSignal, buildSignalInstruction, recordSignalDelivered
 │   │   ├── signals.ts             # Observation signal engine — picks when Claude surfaces a growing observation (before_prompt_build)
 │   │   ├── test-setup.ts          # Vitest setup — redirects HOME to a per-run temp directory
 │   │   └── types.ts               # All TypeScript types (DimensionKey, HandoffState, PendingNotification + all others)
 │   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
-│   ├── package.json               # v0.1.7
+│   ├── package.json               # v0.1.9
+│   ├── README.md                  # Plugin README — install, quick start, architecture summary, dimension table
 │   ├── simulate.mjs               # E2E simulation script — 14 scenarios (9, 11, 12, 14 opt-in via --live-nostr); uses TRUEMATCH_DIR_OVERRIDE + TRUEMATCH_REGISTRY_URL_OVERRIDE
-│   ├── tsconfig.json
+│   ├── tsconfig.json              # strict + noUncheckedIndexedAccess
 │   └── vitest.config.ts           # Plugin test config — includes src/**/*.test.ts
 ├── skill/
 │   └── skill.md                   # Served at clawmatch.org/skill.md

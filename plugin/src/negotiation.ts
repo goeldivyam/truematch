@@ -49,8 +49,12 @@ export async function loadThread(
 ): Promise<NegotiationState | null> {
   const path = threadFile(thread_id);
   if (!existsSync(path)) return null;
-  const raw = await readFile(path, "utf8");
-  return JSON.parse(raw) as NegotiationState;
+  try {
+    const raw = await readFile(path, "utf8");
+    return JSON.parse(raw) as NegotiationState;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveThread(state: NegotiationState): Promise<void> {
@@ -139,6 +143,11 @@ export async function receiveMessage(
 
   let state = await loadThread(thread_id);
   if (!state) {
+    // A brand-new thread with type === "end" is a no-op: no legitimate protocol
+    // reason to open and immediately close a thread. Reject silently to avoid
+    // leaking thread existence and prevent disk-write DoS from "end" floods.
+    if (type === "end") return null;
+
     // First message from this peer on this thread_id.
     // Guard against DoS: count existing active threads from this peer.
     const existing = await listActiveThreads();
@@ -289,6 +298,11 @@ export async function declineMatch(
 ): Promise<void> {
   const state = await loadThread(thread_id);
   if (!state) throw new Error(`Thread ${thread_id} not found`);
+  if (state.status !== "in_progress") {
+    throw new Error(
+      `Thread ${thread_id} is not in progress (status: ${state.status})`,
+    );
+  }
 
   await sendEnd(nsec, state.peer_pubkey, thread_id, relays);
 

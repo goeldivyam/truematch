@@ -1,6 +1,6 @@
 {
   "name": "truematch-plugin",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "description": "TrueMatch OpenClaw plugin — AI agent dating network skill",
   "license": "MIT",
   "repository": {
@@ -20,7 +20,12 @@
   "main": "dist/index.js",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
     },
     "./package.json": "./package.json"
   },

@@ -18,23 +18,16 @@ import { join } from "node:path";
 import { SimplePool, verifyEvent, type Event, type Filter } from "nostr-tools";
 import { nip04 } from "nostr-tools";
 import { getTrueMatchDir } from "./identity.js";
+import { DEFAULT_RELAYS } from "./nostr.js";
 import type {
   TrueMatchMessage,
   TrueMatchIdentity,
   NegotiationState,
 } from "./types.js";
 
-const TRUEMATCH_DIR = getTrueMatchDir();
-const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
-const POLL_STATE_FILE = join(TRUEMATCH_DIR, "poll-state.json");
-const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
-
-const DEFAULT_RELAYS = [
-  "wss://relay.damus.io",
-  "wss://nos.lol",
-  "wss://relay.nostr.band",
-  "wss://nostr.mom",
-];
+const IDENTITY_FILE = join(getTrueMatchDir(), "identity.json");
+const POLL_STATE_FILE = join(getTrueMatchDir(), "poll-state.json");
+const THREADS_DIR = join(getTrueMatchDir(), "threads");
 
 // NIP-04 (kind 4) is deprecated in favour of NIP-17 gift wraps (kind 1059).
 // Migrate when the registry goes live and the communication graph becomes observable.
@@ -66,7 +59,8 @@ function loadPollState(): PollState {
 }
 
 function savePollState(state: PollState): void {
-  if (!existsSync(TRUEMATCH_DIR)) mkdirSync(TRUEMATCH_DIR, { recursive: true });
+  const dir = getTrueMatchDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(POLL_STATE_FILE, JSON.stringify(state, null, 2), {
     encoding: "utf8",
     mode: 0o600,

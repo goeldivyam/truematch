@@ -78,6 +78,38 @@ describe("receiveMessage", () => {
     expect(state?.peer_pubkey).toBe(PEER_NPUB);
   });
 
+  it("returns null when thread is not in_progress (declined)", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    await declineMatch(NSEC, thread.thread_id, RELAYS);
+    // Any further message on a closed thread must be rejected
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      "still here",
+      "negotiation",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("returns null when thread is not in_progress (matched)", async () => {
+    const thread = await initiateNegotiation(PEER_NPUB);
+    await proposeMatch(NSEC, thread.thread_id, NARRATIVE, RELAYS);
+    await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      JSON.stringify(NARRATIVE),
+      "match_propose",
+    ); // double-lock fires → status = matched
+    // Any further message on a matched thread must be rejected
+    const result = await receiveMessage(
+      thread.thread_id,
+      PEER_NPUB,
+      "one more thing",
+      "negotiation",
+    );
+    expect(result).toBeNull();
+  });
+
   it("returns null when sender does not match the thread's peer", async () => {
     // First message from PEER_NPUB creates the thread
     const initial = await receiveMessage(

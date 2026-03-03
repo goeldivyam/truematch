@@ -16,7 +16,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getTrueMatchDir } from "./identity.js";
 import type {
   ObservationSummary,
   DimensionKey,
@@ -25,8 +25,9 @@ import type {
 } from "./types.js";
 import { DIMENSION_FLOORS } from "./observation.js";
 
-const TRUEMATCH_DIR = join(homedir(), ".truematch");
-const SIGNALS_FILE = join(TRUEMATCH_DIR, "signals.json");
+function getSignalsFile(): string {
+  return join(getTrueMatchDir(), "signals.json");
+}
 
 // --- Timing constants (psychologist-derived) ---
 /** Minimum days between signals for the same dimension. */
@@ -69,19 +70,19 @@ const DIMENSION_LABELS: Record<DimensionKey, string> = {
 };
 
 export function loadSignals(): SignalsFile {
-  if (!existsSync(SIGNALS_FILE))
+  if (!existsSync(getSignalsFile()))
     return { schema_version: 1, per_dimension: {} };
   try {
-    return JSON.parse(readFileSync(SIGNALS_FILE, "utf8")) as SignalsFile;
+    return JSON.parse(readFileSync(getSignalsFile(), "utf8")) as SignalsFile;
   } catch {
     return { schema_version: 1, per_dimension: {} };
   }
 }
 
 export function saveSignals(signals: SignalsFile): void {
-  if (!existsSync(TRUEMATCH_DIR))
-    mkdirSync(TRUEMATCH_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(SIGNALS_FILE, JSON.stringify(signals, null, 2), {
+  const dir = getTrueMatchDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(getSignalsFile(), JSON.stringify(signals, null, 2), {
     encoding: "utf8",
     mode: 0o600,
   });

@@ -32,6 +32,7 @@ import {
   emptyObservation,
   eligibilityReport,
   isEligible,
+  isMinimumViable,
   isStale,
 } from "./observation.js";
 import {
@@ -245,7 +246,11 @@ async function cmdStatus(): Promise<void> {
     console.log("Observation: none — run 'truematch observe --update'");
   } else {
     console.log(`\nObservation eligibility:\n${eligibilityReport(obs)}`);
-    console.log(`\nPool eligible: ${isEligible(obs) ? "YES" : "NO"}`);
+    const eligible = isEligible(obs);
+    const mve = isMinimumViable(obs);
+    console.log(
+      `\nPool eligible: ${eligible ? "YES (full)" : mve ? "YES (MVE — T1+T2 only)" : "NO"}`,
+    );
     if (isStale(obs)) {
       console.log("⚠ Manifest is stale — run 'truematch observe --update'");
     }
@@ -257,11 +262,6 @@ async function cmdStatus(): Promise<void> {
   const active = await listActiveThreads();
   if (active.length > 0) {
     console.log(`\nActive negotiations: ${active.length}`);
-    for (const t of active) {
-      console.log(
-        `  ${t.thread_id.slice(0, 8)}... — round ${t.round_count}/10 — peer: ${t.peer_pubkey.slice(0, 12)}...`,
-      );
-    }
   }
 
   if (args["relays"]) {
@@ -445,10 +445,9 @@ async function cmdMatch(): Promise<void> {
       if (active.length === 0) {
         console.log("No active negotiations.");
       } else {
+        console.log(`Active negotiations: ${active.length}`);
         for (const t of active) {
-          console.log(
-            `Thread ${t.thread_id} — round ${t.round_count}/10 — ${t.status}`,
-          );
+          console.log(`  Thread ${t.thread_id.slice(0, 8)}... — ${t.status}`);
         }
       }
     }
@@ -493,7 +492,7 @@ async function cmdMatch(): Promise<void> {
       process.exit(1);
     }
     console.log(
-      `Message registered. Thread ${thread_id.slice(0, 8)}... — round ${state.round_count} — status: ${state.status}`,
+      `Message registered. Thread ${thread_id.slice(0, 8)}... — status: ${state.status}`,
     );
     if (state.status === "matched") {
       if (state.match_narrative) {
@@ -503,11 +502,15 @@ async function cmdMatch(): Promise<void> {
             state.peer_pubkey,
             state.match_narrative,
           );
-        } catch {
-          // Notification write failed — match is still confirmed
+        } catch (err) {
+          process.stderr.write(
+            `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
+              `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
         }
       }
-      console.log("MATCH CONFIRMED (double-lock cleared).");
+      console.log("MATCH CONFIRMED.");
     }
     return;
   }
@@ -567,21 +570,26 @@ async function cmdMatch(): Promise<void> {
     );
     if (state.status === "matched") {
       if (state.match_narrative) {
-        writePendingNotificationIfMatched(
-          state.thread_id,
-          state.peer_pubkey,
-          state.match_narrative,
-        );
+        try {
+          writePendingNotificationIfMatched(
+            state.thread_id,
+            state.peer_pubkey,
+            state.match_narrative,
+          );
+        } catch (err) {
+          process.stderr.write(
+            `Warning: notification write failed — match IS confirmed, but pending_notification.json was not written. ` +
+              `Run 'truematch match --status --thread ${state.thread_id}' to view the match.\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
+        }
       }
-      console.log("MATCH CONFIRMED (double-lock cleared).");
-      console.log("Headline:", state.match_narrative?.headline ?? "(pending)");
+      console.log("MATCH CONFIRMED.");
       console.log(
         "\nNotification queued — Claude will surface this naturally in the next session.",
       );
     } else {
-      console.log(
-        `Match proposal sent. Waiting for peer's proposal (thread ${thread_id.slice(0, 8)}...)`,
-      );
+      console.log(`Match proposal sent. Waiting for peer's proposal.`);
     }
     return;
   }
@@ -610,7 +618,7 @@ async function cmdMatch(): Promise<void> {
     }
 
     const obs = await loadObservation();
-    if (!obs || !isEligible(obs)) {
+    if (!obs || (!isEligible(obs) && !isMinimumViable(obs))) {
       console.error(
         "Observation not yet eligible for matching. Run: truematch status",
       );
@@ -683,12 +691,11 @@ async function cmdMatch(): Promise<void> {
 
     // Random selection — distributes load and avoids always negotiating with the same peer
     const peer = candidates[Math.floor(Math.random() * candidates.length)]!;
-    console.log(`Starting negotiation with ${peer.pubkey.slice(0, 12)}...`);
 
     // Create the thread — Claude writes and sends the opening via --send
     const state = await initiateNegotiation(peer.pubkey);
 
-    console.log(`Thread created: ${state.thread_id}`);
+    console.log(`Negotiation thread ready.`);
     console.log(`\nNow write your opening message. Include:`);
     console.log(`  - Your user's core values (Schwartz labels + confidence)`);
     console.log(`  - Dealbreaker result: pass or fail`);
@@ -754,9 +761,7 @@ async function cmdMatch(): Promise<void> {
           process.exit(0);
         }
 
-        console.log(`\n[TrueMatch] Message from peer ${from.slice(0, 12)}:`);
-        console.log(`Thread: ${message.thread_id}`);
-        console.log(`Round: ${updated.round_count} / 10\n`);
+        console.log(`\n[TrueMatch] Incoming message:`);
         console.log(message.content);
         console.log(
           "\nRespond with: truematch match --send '<reply>' --thread " +

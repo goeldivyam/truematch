@@ -22,6 +22,7 @@
 set -euo pipefail
 
 POLL_INTERVAL=${TRUEMATCH_POLL_INTERVAL:-15}   # seconds between relay polls
+HEARTBEAT_INTERVAL=${TRUEMATCH_HEARTBEAT_INTERVAL:-5400}  # seconds between heartbeats (default 90 min)
 TRUEMATCH_DIR="${TRUEMATCH_DIR:-$HOME/.truematch}"
 PERSONA_FILE="${TRUEMATCH_DIR}/persona.md"
 QUEUE_FILE="${TRUEMATCH_DIR}/message-queue.jsonl"
@@ -71,8 +72,11 @@ fi
 # Ensure queue file exists
 touch "$QUEUE_FILE"
 
-echo "TrueMatch bridge started. Polling every ${POLL_INTERVAL}s..."
+echo "TrueMatch bridge started. Polling every ${POLL_INTERVAL}s, heartbeat every ${HEARTBEAT_INTERVAL}s..."
 echo "Project dir: $PROJECT_DIR"
+
+# Track last heartbeat time so we can fire one on startup and every HEARTBEAT_INTERVAL seconds
+LAST_HEARTBEAT=0
 
 process_message() {
   local thread_id="$1"
@@ -101,13 +105,13 @@ process_message() {
 
   echo "Processing message for thread ${thread_id:0:8}... (round $round_count)"
 
-  # Call Claude headlessly, continuing the existing project session
-  cd "$PROJECT_DIR"
-  claude --continue \
+  # Call Claude headlessly, continuing the existing project session.
+  # Use a subshell so the cd doesn't change the daemon's working directory.
+  (cd "$PROJECT_DIR" && claude --continue \
     --append-system-prompt "$(cat "$PERSONA_FILE")" \
     -p "$(cat "$prompt_file")" \
     --output-format text \
-    2>&1 || echo "Claude session error for thread $thread_id"
+    2>&1) || echo "Claude session error for thread $thread_id"
   rm -f "$prompt_file"
 }
 
@@ -128,6 +132,14 @@ fi
 
 # Main polling loop
 while true; do
+  # Send heartbeat on startup and every HEARTBEAT_INTERVAL seconds so this
+  # agent stays visible in the matching pool (registry TTL is 24h, window is 2h).
+  NOW=$(date +%s)
+  if (( NOW - LAST_HEARTBEAT >= HEARTBEAT_INTERVAL )); then
+    truematch heartbeat >> "${TRUEMATCH_DIR}/bridge.log" 2>&1 || true
+    LAST_HEARTBEAT=$NOW
+  fi
+
   # Poll for new messages — outputs JSONL (one message per line) via poll.js
   # Errors from poll go to bridge.log; JSONL output appended to the queue file
   if node "$POLL_JS" >> "$QUEUE_FILE" 2>>"${TRUEMATCH_DIR}/bridge.log"; then
@@ -154,8 +166,21 @@ while true; do
         IFS=$'\001' read -r thread_id peer_pubkey msg_type content round_count <<< "$parsed"
 
         if [[ -n "$thread_id" ]]; then
-          # Save to thread state first
-          truematch match --status --thread "$thread_id" > /dev/null 2>&1 || true
+          # Register the inbound message so thread state is current when Claude reads it.
+          # All fields passed via env vars to prevent shell injection / quoting issues.
+          TM_CONTENT="$content" \
+          TM_THREAD_ID="$thread_id" \
+          TM_PEER_PUBKEY="$peer_pubkey" \
+          TM_MSG_TYPE="$msg_type" \
+          node -e "
+            const {spawnSync} = require('child_process');
+            const r = spawnSync('truematch', [
+              'match','--receive', process.env.TM_CONTENT,
+              '--thread', process.env.TM_THREAD_ID,
+              '--peer', process.env.TM_PEER_PUBKEY,
+              '--type', process.env.TM_MSG_TYPE
+            ], {stdio: 'inherit'});
+          " 2>&1 || true
           process_message "$thread_id" "$peer_pubkey" "$msg_type" "$content" "$round_count"
         fi
       done < "$QUEUE_FILE"
