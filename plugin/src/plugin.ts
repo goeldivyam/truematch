@@ -31,7 +31,7 @@ import type { ObservationSummary } from "./types.js";
  * The `register(api)` function wires up lifecycle hooks and tools.
  *
  * Hooks registered:
- *   gateway:startup      — detects first-run and missing preferences at boot
+ *   gateway_start        — detects first-run and missing preferences at boot
  *   session_start        — resets per-session delivery flags
  *   before_prompt_build  — injects match notification, handoff context, observation signal
  *   command:new          — on /new: runs setup, preferences, or observation update
@@ -76,7 +76,7 @@ interface PluginAPI {
       | Promise<PluginHookBeforePromptBuildResult | void>,
   ): void;
   on(
-    event: "session_start" | "session_end",
+    event: "session_start" | "session_end" | "gateway_start" | "gateway_stop",
     handler: (event: PluginEvent) => void | Promise<void>,
   ): void;
   // Generic string hook registration (return values are discarded)
@@ -114,7 +114,7 @@ function getSessionFlags(sessionKey: string): SessionFlags {
   return flags;
 }
 
-// Module-scoped flags set at gateway:startup, consumed at first command:new.
+// Module-scoped flags set at gateway_start, consumed at first command:new.
 // Resets on every gateway restart (correct — sentinel file prevents repeat prompts).
 const pluginState = {
   needsSetup: false,
@@ -233,7 +233,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.21",
+  version: "0.1.22",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -262,96 +262,88 @@ export default {
       },
     });
 
-    // ── Hook: gateway:startup ──────────────────────────────────────────────────
+    // ── Hook: gateway_start ────────────────────────────────────────────────────
     // Fires once per gateway process, after channels and hooks load.
     // Use it to detect setup state so command:new can prompt appropriately.
-    api.registerHook(
-      "gateway:startup",
-      () => {
-        const identityFile = join(getTrueMatchDir(), "identity.json");
-        const preferencesFile = join(getTrueMatchDir(), "preferences.json");
-        if (!existsSync(identityFile)) {
-          pluginState.needsSetup = true;
-        } else if (!existsSync(preferencesFile)) {
-          pluginState.needsPreferences = true;
-        }
+    api.on("gateway_start", (_event) => {
+      const identityFile = join(getTrueMatchDir(), "identity.json");
+      const preferencesFile = join(getTrueMatchDir(), "preferences.json");
+      if (!existsSync(identityFile)) {
+        pluginState.needsSetup = true;
+      } else if (!existsSync(preferencesFile)) {
+        pluginState.needsPreferences = true;
+      }
 
-        // Register the TrueMatch background cron job if not already present.
-        // Writes directly to jobs.json — the documented approach for plugin-side
-        // cron registration (no api.registerCron() exists in the PluginAPI).
-        // Deferred to avoid the gateway:startup race condition (openclaw issue #30257).
-        // Delay is configurable via TRUEMATCH_CRON_REGISTER_DELAY_MS. Defaults to 2s.
-        const cronDelay = parseInt(
-          process.env["TRUEMATCH_CRON_REGISTER_DELAY_MS"] ?? "2000",
-          10,
-        );
-        setTimeout(() => {
-          try {
-            const openclawStateDir =
-              process.env["OPENCLAW_STATE_DIR"] ?? join(homedir(), ".openclaw");
-            const cronJobsFile = join(openclawStateDir, "cron", "jobs.json");
+      // Register the TrueMatch background cron job if not already present.
+      // Writes directly to jobs.json — the documented approach for plugin-side
+      // cron registration (no api.registerCron() exists in the PluginAPI).
+      // Deferred to avoid a jobs.json write race during gateway startup.
+      // Delay is configurable via TRUEMATCH_CRON_REGISTER_DELAY_MS. Defaults to 2s.
+      const cronDelay = parseInt(
+        process.env["TRUEMATCH_CRON_REGISTER_DELAY_MS"] ?? "2000",
+        10,
+      );
+      setTimeout(() => {
+        try {
+          const openclawStateDir =
+            process.env["OPENCLAW_STATE_DIR"] ?? join(homedir(), ".openclaw");
+          const cronJobsFile = join(openclawStateDir, "cron", "jobs.json");
 
-            // Read existing jobs — CronStoreFile format: { version: 1, jobs: [...] }
-            type CronJob = {
-              id?: string;
-              name?: string;
-              [key: string]: unknown;
-            };
-            type CronStore = { version?: number; jobs: CronJob[] };
-            const raw = existsSync(cronJobsFile)
-              ? (JSON.parse(readFileSync(cronJobsFile, "utf8")) as
-                  | CronStore
-                  | CronJob[])
-              : { version: 1, jobs: [] };
-            const store: CronStore = Array.isArray(raw)
-              ? { version: 1, jobs: raw }
-              : raw;
+          // Read existing jobs — CronStoreFile format: { version: 1, jobs: [...] }
+          type CronJob = {
+            id?: string;
+            name?: string;
+            [key: string]: unknown;
+          };
+          type CronStore = { version?: number; jobs: CronJob[] };
+          const raw = existsSync(cronJobsFile)
+            ? (JSON.parse(readFileSync(cronJobsFile, "utf8")) as
+                | CronStore
+                | CronJob[])
+            : { version: 1, jobs: [] };
+          const store: CronStore = Array.isArray(raw)
+            ? { version: 1, jobs: raw }
+            : raw;
 
-            const alreadyRegistered = store.jobs.some(
-              (j) => j.name === "truematch-heartbeat",
-            );
+          const alreadyRegistered = store.jobs.some(
+            (j) => j.name === "truematch-heartbeat",
+          );
 
-            if (!alreadyRegistered) {
-              const FIFTEEN_MINUTES_MS = 15 * 60 * 1000; // 900000
-              const now = Date.now();
-              store.jobs.push({
-                id: randomUUID(),
-                name: "truematch-heartbeat",
-                enabled: true,
-                createdAtMs: now,
-                updatedAtMs: now,
-                // "every" kind with everyMs — fixed interval schedule.
-                // Isolated sessions auto-announce to the user's primary channel.
-                schedule: { kind: "every", everyMs: FIFTEEN_MINUTES_MS },
-                sessionTarget: "isolated",
-                // "next-heartbeat": fires on the next scheduled gateway heartbeat
-                // tick rather than immediately, avoiding burst load on startup.
-                wakeMode: "next-heartbeat",
-                payload: {
-                  kind: "agentTurn",
-                  message:
-                    "Run the TrueMatch background routine: " +
-                    "truematch observe --show, " +
-                    "truematch heartbeat, " +
-                    'node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
-                    "for each JSONL line received, register and process per the negotiation protocol, " +
-                    "truematch match --status. " +
-                    "Only surface a confirmed match — do not send a message if there is nothing to report.",
-                },
-              });
-              writeFileSync(cronJobsFile, JSON.stringify(store, null, 2));
-            }
-          } catch {
-            // Non-fatal — silently skip on any file I/O or JSON errors
+          if (!alreadyRegistered) {
+            const FIFTEEN_MINUTES_MS = 15 * 60 * 1000; // 900000
+            const now = Date.now();
+            store.jobs.push({
+              id: randomUUID(),
+              name: "truematch-heartbeat",
+              enabled: true,
+              createdAtMs: now,
+              updatedAtMs: now,
+              // "every" kind with everyMs — fixed interval schedule.
+              // Isolated sessions auto-announce to the user's primary channel.
+              schedule: { kind: "every", everyMs: FIFTEEN_MINUTES_MS },
+              sessionTarget: "isolated",
+              // "next-heartbeat": fires on the next scheduled gateway heartbeat
+              // tick rather than immediately, avoiding burst load on startup.
+              wakeMode: "next-heartbeat",
+              payload: {
+                kind: "agentTurn",
+                message:
+                  "Run the TrueMatch background routine: " +
+                  "truematch observe --show, " +
+                  "truematch heartbeat, " +
+                  'node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
+                  "for each JSONL line received, register and process per the negotiation protocol, " +
+                  "truematch match --status. " +
+                  "Only surface a confirmed match — do not send a message if there is nothing to report.",
+              },
+            });
+            writeFileSync(cronJobsFile, JSON.stringify(store, null, 2));
           }
-        }, cronDelay);
-      },
-      {
-        name: "TrueMatch startup check",
-        description:
-          "Detects whether TrueMatch setup and preferences are configured, and registers background cron job",
-      },
-    );
+        } catch {
+          // Non-fatal — silently skip on any file I/O or JSON errors
+        }
+      }, cronDelay);
+    });
 
     // ── Hook: session_start ───────────────────────────────────────────────────
     // Reset per-session delivery flags so signals and notifications fire at most
