@@ -260,7 +260,17 @@ async function cmdObserve(): Promise<void> {
       console.error("Invalid JSON");
       process.exit(1);
     }
-    await saveObservation(obs);
+    try {
+      await saveObservation(obs);
+    } catch (err) {
+      console.error(
+        `Failed to save observation — check JSON schema matches ObservationSummary.\n` +
+          `Each dimension needs: { confidence, observation_count, behavioral_context_diversity }\n` +
+          `Dimensions: attachment, core_values, communication, emotional_regulation, humor, life_velocity, dealbreakers, conflict_resolution, interdependence_model\n` +
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
     console.log(`ObservationSummary saved. Eligible: ${isEligible(obs)}`);
     return;
   }
