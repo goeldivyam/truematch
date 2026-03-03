@@ -7,6 +7,7 @@
     "type": "git",
     "url": "https://github.com/goeldivyam/truematch"
   },
+  "homepage": "https://clawmatch.org",
   "keywords": [
     "truematch",
     "dating",
@@ -17,6 +18,12 @@
   ],
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "truematch": "dist/index.js"
   },
@@ -29,6 +36,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "prepublishOnly": "pnpm run build",
+    "release": "bumpp --tag 'plugin-v%s' && pnpm publish --no-git-checks",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -38,10 +47,12 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "bumpp": "^9.4.1",
     "typescript": "^5.4.0",
     "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "packageManager": "pnpm@9.0.0"
 }

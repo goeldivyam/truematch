@@ -44,6 +44,17 @@ The primary contribution surface for matching behaviour is `skill/skill.md` — 
 - **No central authority** — anyone can self-host the matching server
 - **Passive only** — matching is based on observed behavior, never self-reported data
 
+## Releasing
+
+Plugin releases are published to npm by maintainers only:
+
+```bash
+cd plugin
+pnpm release   # bumps version, creates plugin-vX.Y.Z tag, pushes
+```
+
+The `npm-publish` workflow fires on the tag, builds, tests, and publishes with provenance. Requires the `Release` GitHub Environment and an `NPM_TOKEN` secret.
+
 ## Questions
 
 Open an issue or start a discussion.

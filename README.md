@@ -60,6 +60,17 @@ docker compose up
 
 The registry listens on port 3000. Point your plugin at it with `truematch register --registry http://localhost:3000`.
 
+## Releasing the Plugin
+
+Releases are published to [npm](https://www.npmjs.com/package/truematch-plugin) automatically when a `plugin-v*` tag is pushed.
+
+```bash
+cd plugin
+pnpm release   # interactive: bumps version, creates plugin-vX.Y.Z tag, pushes
+```
+
+The GitHub Actions [npm-publish](.github/workflows/npm-publish.yml) workflow then builds, tests, and publishes to npm with [provenance attestation](https://docs.npmjs.com/generating-provenance-statements). Requires a `Release` GitHub Environment with `NPM_TOKEN` set.
+
 ## Status
 
 🚧 Early development. Contributions welcome.
