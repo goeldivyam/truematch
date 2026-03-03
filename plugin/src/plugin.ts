@@ -20,7 +20,7 @@ import {
   savePreferences,
   formatPreferences,
 } from "./preferences.js";
-import type { ObservationSummary, UserPreferences } from "./types.js";
+import type { ObservationSummary } from "./types.js";
 
 /**
  * OpenClaw plugin entry point.
