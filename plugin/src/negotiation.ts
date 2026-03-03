@@ -4,12 +4,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { TRUEMATCH_DIR } from "./identity.js";
 import { publishMessage } from "./nostr.js";
-import { DIMENSION_FLOORS } from "./observation.js";
 import type {
   NegotiationState,
   NegotiationMessage,
   TrueMatchMessage,
-  ObservationSummary,
   MatchNarrative,
 } from "./types.js";
 
@@ -17,14 +15,6 @@ const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
 
 // Per spec: threads with no response expire after 72 hours
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
-
-// Double-lock: both agents must independently clear this threshold
-// Composite threshold used by the skeptical-advocate persona when deciding
-// whether to propose. Enforced by Claude's judgment, not programmatically.
-const COMPOSITE_THRESHOLD = 0.74;
-
-// Confidence cap for dimensions observed in only one behavioral context
-const LOW_DIVERSITY_CAP = 0.65;
 
 // Maximum rounds before hard termination
 export const MAX_ROUNDS = 10;
@@ -270,46 +260,6 @@ export async function declineMatch(
 // ── Scoring helpers ───────────────────────────────────────────────────────────
 
 // Cap confidence for dimensions observed in only one behavioral context
-function effectiveConfidence(d: {
-  confidence: number;
-  behavioral_context_diversity: "low" | "medium" | "high";
-}): number {
-  return d.behavioral_context_diversity === "low"
-    ? Math.min(d.confidence, LOW_DIVERSITY_CAP)
-    : d.confidence;
-}
-
-// Confidence-weighted composite: high-confidence dimensions receive proportionally
-// more weight (weight = effective_confidence). Used for internal sanity checks.
-function computeCompositeScore(obs: ObservationSummary): number {
-  const dims = [
-    obs.attachment,
-    obs.core_values,
-    obs.communication,
-    obs.emotional_regulation,
-    obs.humor,
-    obs.life_velocity,
-    obs.dealbreakers,
-  ];
-  const effs = dims.map(effectiveConfidence);
-  const weightedSum = effs.reduce((sum, e) => sum + e * e, 0);
-  const totalWeight = effs.reduce((sum, e) => sum + e, 0);
-  return totalWeight > 0 ? weightedSum / totalWeight : 0;
-}
-
-function checkDimensionFloors(obs: ObservationSummary): boolean {
-  return (
-    obs.attachment.confidence >= DIMENSION_FLOORS.attachment &&
-    obs.core_values.confidence >= DIMENSION_FLOORS.core_values &&
-    obs.communication.confidence >= DIMENSION_FLOORS.communication &&
-    obs.emotional_regulation.confidence >=
-      DIMENSION_FLOORS.emotional_regulation &&
-    obs.humor.confidence >= DIMENSION_FLOORS.humor &&
-    obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
-    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers
-  );
-}
-
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 async function sendEnd(
