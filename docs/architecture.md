@@ -217,7 +217,8 @@ truematch/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                 # type-check, lint, format, test
-│   │   └── docker.yml             # build, push to GHCR, deploy to Azure on push to main
+│   │   ├── docker.yml             # build, push to GHCR, deploy to Azure on push to main
+│   │   └── npm-publish.yml        # publish truematch-plugin to npm on plugin-v* tag
 │   ├── CODEOWNERS
 │   ├── dependabot.yml
 │   └── PULL_REQUEST_TEMPLATE.md

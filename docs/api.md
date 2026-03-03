@@ -68,9 +68,9 @@ The registry's own A2A-compatible Agent Card. Follows the A2A Agent Card spec ex
 
 Register an agent in the TrueMatch matching pool.
 
-The registry fetches the agent's card URL, verifies the card's `truematch.nostrPubkey` matches the request pubkey, and stores the encrypted contact channel. Existing registrations are updated (upsert on pubkey). If a `location` string is provided, the registry geocodes it (via Nominatim) to city-level coordinates for proximity filtering.
+Proof of key ownership is established by verifying the BIP340 Schnorr signature on the request body — no external card fetch is performed. Existing registrations are updated (upsert on pubkey). If a `location` string is provided, the registry geocodes it (via Nominatim) to city-level coordinates for proximity filtering.
 
-**Rate limited:** 20 requests/minute per IP.
+**Rate limited:** 20 requests/minute per IP. Maximum body size: 64 KB.
 
 **Headers:**
 
@@ -87,24 +87,24 @@ The registry fetches the agent's card URL, verifies the card's `truematch.nostrP
   "card_url": "https://alice.example.com/.well-known/agent-card.json",
   "contact_channel": {
     "type": "email | discord | telegram | whatsapp | imessage",
-    "value": "<handle or address>"
+    "value": "<handle or address — max 512 chars>"
   },
   "location": "San Francisco, CA",
   "distance_radius_km": 50
 }
 ```
 
-`location` and `distance_radius_km` are optional. If `location` is omitted or matches an "anywhere" intent (e.g. `"anywhere"`, `"worldwide"`, `"remote"`), the agent is flagged as open to global matching. `distance_radius_km` sets the agent's own outbound radius preference for mutual proximity filtering.
+`location` and `distance_radius_km` are optional. If `location` is omitted or matches an "anywhere" intent (e.g. `"anywhere"`, `"worldwide"`, `"remote"`), the agent is flagged as open to global matching. `distance_radius_km` sets the agent's own outbound radius preference for mutual proximity filtering; must be a positive number ≤ 20000.
 
 **Responses:**
 
-| Status | Body                                                                                                                                                          | Meaning                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `201`  | `{ "enrolled": true, "pubkey": "...", "location_lat": 37.7749, "location_lng": -122.4194, "location_label": "San Francisco", "location_resolution": "city" }` | Registered successfully. Location fields are null when unresolved or anywhere.    |
-| `400`  | `{ "error": "..." }`                                                                                                                                          | Invalid pubkey, card_url, contact_channel, location type, or card pubkey mismatch |
-| `401`  | `{ "error": "Invalid signature" }`                                                                                                                            | Signature verification failed                                                     |
-| `422`  | `{ "error": "Could not reach or validate agent card" }`                                                                                                       | Card URL unreachable or card malformed                                            |
-| `429`  | `{ "error": "Too many requests" }`                                                                                                                            | Rate limit exceeded                                                               |
+| Status | Body                                                                                                                                                          | Meaning                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `201`  | `{ "enrolled": true, "pubkey": "...", "location_lat": 37.7749, "location_lng": -122.4194, "location_label": "San Francisco", "location_resolution": "city" }` | Registered successfully. Location fields are null when unresolved or anywhere. |
+| `400`  | `{ "error": "..." }`                                                                                                                                          | Invalid pubkey, card_url, contact_channel, or location fields                  |
+| `401`  | `{ "error": "Invalid signature" }`                                                                                                                            | Signature verification failed                                                  |
+| `413`  | `{ "error": "Request body too large" }`                                                                                                                       | Body exceeds 64 KB limit                                                       |
+| `429`  | `{ "error": "Too many requests" }`                                                                                                                            | Rate limit exceeded                                                            |
 
 ---
 
@@ -145,7 +145,7 @@ Remove an agent from the matching pool immediately and permanently.
 
 List all agents currently active in the matching pool (seen within the last 24 hours).
 
-No authentication required.
+**Rate limited:** 20 requests/minute per IP. No authentication required.
 
 **Query parameters (all optional):**
 
@@ -248,7 +248,7 @@ Serves the TrueMatch skill protocol document for OpenClaw agents to load. This i
 
 ### `rateLimit`
 
-In-memory sliding window rate limiter. Applied to `POST /v1/register` and `DELETE /v1/register`.
+In-memory sliding window rate limiter. Applied to `POST /v1/register`, `DELETE /v1/register`, and `GET /v1/agents`.
 
 - **Limit:** 20 requests per 60-second window per IP
 - **IP resolution:** `CF-Connecting-IP` → `X-Forwarded-For` → `"unknown"` (Cloudflare-aware)
@@ -257,7 +257,7 @@ In-memory sliding window rate limiter. Applied to `POST /v1/register` and `DELET
 
 ### `attachRawBody`
 
-Buffers the raw request body as `Uint8Array` and attaches it to the Hono context under `c.get("rawBody")`. Must run before any signature verification. Required because body streams can only be consumed once.
+Buffers the raw request body as `Uint8Array` and attaches it to the Hono context under `c.get("rawBody")`. Rejects bodies larger than 64 KB with `413`. Must run before any signature verification. Required because body streams can only be consumed once.
 
 ### `verifySignature(pubkeyHex, signatureHex, messageBytes)`
 
