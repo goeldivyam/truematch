@@ -258,12 +258,12 @@ truematch/
 │   │   └── truematch-prefs/
 │   │       └── SKILL.md           # /truematch-prefs slash command (non-observed preferences update)
 │   ├── src/
+│   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management
 │   │   ├── identity.ts            # secp256k1 keypair generation and persistence
-│   │   ├── index.ts               # CLI entry point — match, observe, register subcommands
+│   │   ├── index.ts               # CLI entry point — match, observe, handoff, register subcommands
 │   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
 │   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
-│   │   ├── handoff.ts             # Post-match notification + 3-round handoff state management
 │   │   ├── plugin.ts              # OpenClaw lifecycle plugin — before_prompt_build + session_start hooks
 │   │   ├── poll.ts                # One-shot Nostr relay poller — called by bridge.sh, outputs JSONL to stdout
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers
