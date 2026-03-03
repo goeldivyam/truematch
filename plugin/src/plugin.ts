@@ -1,7 +1,8 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import {
   loadSignals,
   saveSignals,
@@ -407,13 +408,19 @@ export default {
           return;
         }
 
-        // Update observation summary from Claude's existing memory
+        // Update observation summary from Claude's existing memory.
+        // Use an absolute path to the CLI entry point so this works regardless
+        // of whether the truematch bin is on PATH in Claude's process environment.
+        const cliPath = join(
+          dirname(fileURLToPath(import.meta.url)),
+          "index.js",
+        );
         let output: string;
         try {
-          output = execSync("truematch observe --update", {
-            encoding: "utf8",
-            timeout: 5000,
-          });
+          output = execSync(
+            `${process.execPath} ${JSON.stringify(cliPath)} observe --update`,
+            { encoding: "utf8", timeout: 5000 },
+          );
         } catch {
           // truematch not set up yet — silently skip
           return;
