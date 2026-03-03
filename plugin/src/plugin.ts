@@ -20,7 +20,6 @@ import { homedir } from "node:os";
 const TRUEMATCH_DIR = join(homedir(), ".truematch");
 const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
 const PREFERENCES_FILE = join(TRUEMATCH_DIR, "preferences.json");
-const OBSERVATION_FILE = join(TRUEMATCH_DIR, "observation.json");
 
 interface PluginEvent {
   type: string;
@@ -46,7 +45,6 @@ interface PluginAPI {
 const pluginState = {
   needsSetup: false,
   needsPreferences: false,
-  needsBootstrap: false,
 };
 
 interface StoredPreferences {
@@ -229,10 +227,6 @@ export default {
           pluginState.needsSetup = true;
         } else if (!existsSync(PREFERENCES_FILE)) {
           pluginState.needsPreferences = true;
-        } else if (!existsSync(OBSERVATION_FILE)) {
-          // Identity and preferences exist but no observations yet.
-          // Trigger the cold-start seed conversation on the next /new.
-          pluginState.needsBootstrap = true;
         }
       },
       {
@@ -244,7 +238,9 @@ export default {
 
     // ── Hook: command:new ──────────────────────────────────────────────────────
     // Fires on every /new invocation.
-    // Three branches: first-time setup, missing preferences, or normal observation update.
+    // Branches: first-time setup → preferences collection → normal observation update.
+    // No seed/bootstrapping questions — TrueMatch observes only. If confidence is low,
+    // Claude communicates this to the user naturally via the observation output.
     api.registerHook(
       "command:new",
       (event) => {
@@ -289,56 +285,7 @@ export default {
           return;
         }
 
-        if (pluginState.needsBootstrap) {
-          pluginState.needsBootstrap = false;
-          // First: attempt to build observations from existing Claude memory.
-          // Most real users already have conversation history — observe --update
-          // will produce meaningful confidence scores without any bootstrapping.
-          // Only use seed prompts if history is genuinely thin.
-          let bootstrapOutput = "";
-          try {
-            bootstrapOutput = execSync(
-              `node "$HOME/.truematch/truematch.js" observe --update`,
-              { encoding: "utf8", timeout: 5000 },
-            );
-          } catch {
-            // CLI not installed yet or other error — fall through to seed prompts
-          }
-
-          event.messages.push(
-            `[TrueMatch] First observation pass — check if existing conversation history ` +
-              `is sufficient to build a personality model.\n\n` +
-              `Run: node "$HOME/.truematch/truematch.js" status\n\n` +
-              `If the observation report shows all 7 dimensions with confidence above their ` +
-              `floors (attachment ≥0.55, core_values ≥0.55, communication ≥0.50, ` +
-              `emotional_regulation ≥0.60, humor ≥0.50, life_velocity ≥0.50, ` +
-              `dealbreakers ≥0.60), save the result with ` +
-              `\`node "$HOME/.truematch/truematch.js" observe --write '<json>'\` and ` +
-              `you're done — no further questions needed.\n\n` +
-              `If confidence is too low on multiple dimensions (not enough conversation ` +
-              `history to draw from), then and only then, run the seed conversation:\n\n` +
-              `Say: "Before we get into regular conversation, I want to understand who you ` +
-              `actually are — not what you'd put on a profile. I'm going to ask you a few ` +
-              `open questions. There are no right answers and I'm not scoring anything. ` +
-              `Just be honest."\n\n` +
-              `Seed prompts (ask 4–6, let answers breathe between them):\n` +
-              `- "Tell me about a time a friendship or relationship surprised you."\n` +
-              `- "What's something you changed your mind about in the last few years?"\n` +
-              `- "Walk me through a typical Saturday — not ideal, just real."\n` +
-              `- "What have you and a close friend disagreed about recently?"\n` +
-              `- "What's a decision you made that you're still not sure about?"\n` +
-              `- "What does a good day actually look like for you right now?"\n\n` +
-              `Seed rules: no trait labels, no preference lists, no hypotheticals, ` +
-              `no TrueMatch references. After seed, update observations — seed observations ` +
-              `count at 0.6x weight vs spontaneous ones.` +
-              (bootstrapOutput
-                ? `\n\nCurrent observation output:\n${bootstrapOutput}`
-                : ""),
-          );
-          return;
-        }
-
-        // Normal path: update observation summary
+        // Update observation summary from Claude's existing memory
         let output: string;
         try {
           output = execSync("truematch observe --update", {
@@ -351,8 +298,13 @@ export default {
         }
 
         event.messages.push(
-          `[TrueMatch] Session ended. Please review and update the observation summary below, ` +
-            `then save it with \`truematch observe --write '<json>'\`:\n\n${output}`,
+          `[TrueMatch] Session ended. Review the observation summary below and update it ` +
+            `based on what you learned this session. Save with ` +
+            `\`truematch observe --write '<json>'\`.\n\n` +
+            `If matching_eligible is false, tell the user naturally — e.g. "I'm still ` +
+            `building a picture of you from our conversations. I'll let you know when ` +
+            `there's enough to start matching." Do NOT ask questions to accelerate this.\n\n` +
+            output,
         );
       },
       {
