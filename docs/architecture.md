@@ -204,6 +204,7 @@ truematch/
 │   │   └── social-matching-psychologist/
 │   ├── agents/                    # Custom Claude Code agent definitions
 │   │   ├── agent-infra-scout.md
+│   │   ├── nostr-integration-reviewer.md
 │   │   ├── openclaw-integration-advisor.md
 │   │   ├── opensource-llm-scout.md
 │   │   └── social-matching-psychologist.md
@@ -244,10 +245,6 @@ truematch/
 │   ├── 0000_blushing_captain_universe.sql  # Initial schema
 │   └── 0001_drop_inbox_url.sql            # Drop inbox_url column
 ├── plugin/                        # OpenClaw plugin — published to ClawHub as truematch-plugin
-│   ├── hooks/
-│   │   └── session-update/        # Fires on command:new (end of session)
-│   │       ├── handler.ts         # Runs truematch observe --update and prompts Claude
-│   │       └── HOOK.md            # Hook metadata (name, events, requirements)
 │   ├── scripts/
 │   │   └── bridge.sh              # Nostr relay polling bridge daemon
 │   ├── skills/
@@ -255,14 +252,15 @@ truematch/
 │   │       └── SKILL.md           # OpenClaw skill manifest for the truematch skill
 │   ├── src/
 │   │   ├── identity.ts            # secp256k1 keypair generation and persistence
-│   │   ├── index.ts               # Plugin entry point — exports all public API
+│   │   ├── index.ts               # CLI entry point — match, observe, register subcommands
 │   │   ├── negotiation.ts         # Free-form negotiation thread manager (double-lock, 10-round cap)
-│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe
+│   │   ├── nostr.ts               # Nostr NIP-04 message publish/subscribe (verifyEvent + deduplication)
 │   │   ├── observation.ts         # ObservationSummary load/save/eligibility (dimension-differentiated floors)
+│   │   ├── plugin.ts              # OpenClaw lifecycle plugin — registers command:new hook
 │   │   ├── preferences.ts         # UserPreferences load/save/format helpers
 │   │   ├── registry.ts            # TrueMatch registry registration and deregistration
 │   │   └── types.ts               # All TypeScript types (DimensionObservation + behavioral_context_diversity)
-│   ├── openclaw.plugin.json        # Plugin manifest (skills + hooks declared)
+│   ├── openclaw.plugin.json        # Plugin manifest (id, kind, main, skills)
 │   ├── package.json
 │   └── tsconfig.json
 ├── skill/
@@ -290,20 +288,19 @@ truematch/
 
 ## Directory Purposes
 
-| Directory         | Purpose                                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------------------- |
-| `src/`            | Server entry point — app wiring, startup validation, background pruning loop                   |
-| `api/routes/`     | HTTP route handlers — one file per resource                                                    |
-| `api/middleware/` | Hono middleware — rate limiting, raw body buffering, signature verification                    |
-| `api/db/`         | Drizzle ORM setup — Turso/libSQL schema and database connection                                |
-| `drizzle/`        | SQL migration files — applied automatically on server startup                                  |
-| `skill/`          | The `skill.md` served publicly at `https://clawmatch.org/skill.md`                             |
-| `plugin/`         | OpenClaw plugin package — installs into the user's Claude Code agent as `truematch-plugin`     |
-| `plugin/src/`     | Plugin TypeScript source — observation model, negotiation thread manager, Nostr transport      |
-| `plugin/hooks/`   | OpenClaw lifecycle hooks — session-update fires on `command:new` to refresh ObservationSummary |
-| `plugin/skills/`  | OpenClaw skill manifests bundled with the plugin                                               |
-| `docs/`           | Project documentation — auto-maintained by `/update-docs` skill                                |
-| `.claude/agents/` | Custom Claude Code agent definitions for this project                                          |
-| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)                            |
+| Directory         | Purpose                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `src/`            | Server entry point — app wiring, startup validation, background pruning loop               |
+| `api/routes/`     | HTTP route handlers — one file per resource                                                |
+| `api/middleware/` | Hono middleware — rate limiting, raw body buffering, signature verification                |
+| `api/db/`         | Drizzle ORM setup — Turso/libSQL schema and database connection                            |
+| `drizzle/`        | SQL migration files — applied automatically on server startup                              |
+| `skill/`          | The `skill.md` served publicly at `https://clawmatch.org/skill.md`                         |
+| `plugin/`         | OpenClaw plugin package — installs into the user's Claude Code agent as `truematch-plugin` |
+| `plugin/src/`     | Plugin TypeScript source — observation model, negotiation thread manager, Nostr transport  |
+| `plugin/skills/`  | OpenClaw skill manifests bundled with the plugin                                           |
+| `docs/`           | Project documentation — auto-maintained by `/update-docs` skill                            |
+| `.claude/agents/` | Custom Claude Code agent definitions for this project                                      |
+| `.claude/skills/` | Claude Code skill definitions (committed, shared with contributors)                        |
 
 <!-- GENERATED:END -->

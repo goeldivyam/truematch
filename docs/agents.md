@@ -34,4 +34,12 @@ Use this agent when you need expert advisory guidance on designing, refining, or
 
 **Use when:** designing the matching algorithm, modeling psychological compatibility dimensions, defining the agent-to-agent negotiation protocol, setting confidence thresholds, or reasoning about privacy architecture.
 
+---
+
+## nostr-integration-reviewer
+
+Use this agent when you need expert review and feedback on Nostr protocol implementation or integration code. This agent does NOT write code — it audits, critiques, and advises.
+
+**Use when:** writing or modifying Nostr event publishing/subscription code, implementing any NIP (NIP-01, NIP-04, NIP-07, NIP-19, NIP-90, etc.), reviewing relay communication logic, or verifying cryptographic key handling in Nostr context.
+
 <!-- GENERATED:END -->
