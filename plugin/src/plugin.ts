@@ -231,7 +231,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.14",
+  version: "0.1.15",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -368,17 +368,21 @@ export default {
               `"Welcome to TrueMatch. I'm going to learn who you are through our conversations ` +
               `over time — you do not need to fill out a profile. Right now I just need three ` +
               `quick logistics so I know who to consider. Where are you based?"\n\n` +
-              `Ask in this order (all in one exchange — do not drip across sessions):\n` +
-              `1. Location — free text (e.g. "London, UK")\n` +
-              `2. Distance — ask: "How far are you open to matching? Within your city (~50 km), ` +
-              `within a few hours' travel (~300 km), or anywhere?" Map to: 50 / 300 / null.\n` +
-              `3. Age range — both min and max optional. Accept "no preference" immediately.\n` +
-              `4. Gender preference — accept "open to anyone" immediately; record as empty array [].\n\n` +
+              `Ask in this order — one question at a time, wait for each answer before continuing. ` +
+              `Collect all five in this session (do not drip across sessions):\n` +
+              `1. Location — ask: "Where are you based?"\n` +
+              `2. Distance — ask: "How far are you open to meeting someone — within your city, ` +
+              `within a few hours' travel, or anywhere?" Map to: 50 / 300 / null.\n` +
+              `3. Age range — ask: "Any age range you'd prefer? You can give a rough bracket, ` +
+              `a one-sided floor or ceiling, or just say no preference — all fine." Both min/max optional.\n` +
+              `4. Gender preference — ask: "Who are you looking to meet? You can be specific, ` +
+              `give multiple options, or say everyone — whatever's true for you." Record open/everyone as [].\n` +
+              `5. Contact — ask: "If we find someone, we'll introduce you through your agent first — ` +
+              `you both decide whether to exchange contact details before anything is shared directly. ` +
+              `For that moment, what contact info would you want them to have? ` +
+              `(Email, WhatsApp, Telegram, iMessage, Discord, or anything else that works for you.)"\n\n` +
               `Do NOT push back on open/no-preference answers. Do NOT re-ask.\n\n` +
-              `Then ask: "Last thing — if there's a match, what contact channel would you want to share with ` +
-              `the other person, and what's the address or handle for it? ` +
-              `(e.g. email address, WhatsApp number, Discord username, Telegram handle, or iMessage address)"\n` +
-              `Collect both the type and the value before running setup.\n\n` +
+              `Collect both the contact type and the value before running setup.\n\n` +
               `Run setup:\n` +
               `  node "$HOME/.truematch/truematch.js" setup --contact-type <type> --contact-value <value>\n` +
               `Save preferences:\n` +
@@ -390,11 +394,11 @@ export default {
         if (pluginState.needsPreferences) {
           pluginState.needsPreferences = false;
           event.messages.push(
-            `[TrueMatch] Preferences not yet set. Ask the user (all in one exchange):\n` +
-              `1. Where are you based? (free text)\n` +
-              `2. How far are you open to matching? (within your city / few hours' travel / anywhere)\n` +
-              `3. Any age range preference? (both optional, "no preference" is a complete answer)\n` +
-              `4. Gender preference? ("open to anyone" is a complete answer — record as [])\n\n` +
+            `[TrueMatch] Preferences not yet set. Ask one question at a time, wait for each answer:\n` +
+              `1. "Where are you based?"\n` +
+              `2. "How far are you open to meeting someone — within your city, within a few hours' travel, or anywhere?"\n` +
+              `3. "Any age range you'd prefer? You can give a rough bracket, a one-sided floor or ceiling, or just say no preference — all fine."\n` +
+              `4. "Who are you looking to meet? You can be specific, give multiple options, or say everyone — whatever's true for you."\n\n` +
               `Accept open/no-preference answers without pushback, then save:\n` +
               `  node "$HOME/.truematch/truematch.js" preferences --set '<json>'\n\n` +
               `If user tries to update preferences in main conversation later, redirect them:\n` +
