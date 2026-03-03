@@ -46,6 +46,8 @@ const DIMENSION_KEYS: DimensionKey[] = [
   "humor",
   "life_velocity",
   "dealbreakers",
+  "conflict_resolution",
+  "interdependence_model",
 ];
 
 /**
@@ -60,6 +62,10 @@ const DIMENSION_LABELS: Record<DimensionKey, string> = {
   humor: "your sense of humor and levity",
   life_velocity: "where you are in life and where you're headed",
   dealbreakers: "what you need in a relationship",
+  conflict_resolution:
+    "how you navigate disagreement and repair after conflict",
+  interdependence_model:
+    "how much separateness versus togetherness you need in a relationship",
 };
 
 export function loadSignals(): SignalsFile {

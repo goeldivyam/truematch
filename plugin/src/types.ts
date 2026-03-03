@@ -27,7 +27,7 @@ export interface ObservationSummary {
   conversation_count: number;
   observation_span_days: number;
 
-  // Per-dimension metadata (×7)
+  // Per-dimension metadata (×9)
   attachment: DimensionMeta;
   core_values: DimensionMeta;
   communication: DimensionMeta;
@@ -35,6 +35,12 @@ export interface ObservationSummary {
   humor: DimensionMeta;
   life_velocity: DimensionMeta;
   dealbreakers: DimensionMeta;
+  // Dimension 8: how the person handles interpersonal conflict (Gottman research)
+  // Style values: Confronting | Repairing | Avoiding | Escalating (stored in Claude memory)
+  conflict_resolution: DimensionMeta;
+  // Dimension 9: desired separateness-vs-togetherness architecture within a relationship
+  // Style values: Merged | Intertwined | Parallel | Independent (stored in Claude memory)
+  interdependence_model: DimensionMeta;
 
   // Dealbreaker gate state (3-valued — can't collapse to boolean)
   dealbreaker_gate_state: DealbreakersGateState;
@@ -181,7 +187,9 @@ export type DimensionKey =
   | "emotional_regulation"
   | "humor"
   | "life_velocity"
-  | "dealbreakers";
+  | "dealbreakers"
+  | "conflict_resolution"
+  | "interdependence_model";
 
 export interface DimensionSignalState {
   /** Confidence value at the time the signal was last delivered to Claude. */

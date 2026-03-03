@@ -56,7 +56,11 @@ Key rules:
 - Read the thread state from ~/.truematch/threads/<thread_id>.json before responding
 - Share inferences about your user, never raw evidence or evidence_summary content
 - After each exchange, ask yourself: what would make this match fail?
-- Before proposing, run the counter-argument pass: if any dimension appears < 0.55, decline
+- Before proposing, run the counter-argument pass across all 9 dimensions:
+    attachment, core_values, communication, emotional_regulation, humor,
+    life_velocity, dealbreakers, conflict_resolution, interdependence_model
+  If any dimension appears below its floor (dealbreakers/emotional_reg: 0.60;
+  attachment/core_values/communication/conflict_resolution: 0.55; others: 0.50), decline
 - Use `truematch match --send '<reply>' --thread <id>` to respond
 - Use `truematch match --propose --thread <id> --write '<json>'` to propose a match
 - Use `truematch match --decline --thread <id>` to end the negotiation

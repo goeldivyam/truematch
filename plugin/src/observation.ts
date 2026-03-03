@@ -13,14 +13,19 @@ const GLOBAL_MIN_DAYS = 2;
 // Per-dimension confidence floors (psychologist-derived)
 // attachment/emotional_regulation: high contextual sensitivity → higher floor
 // dealbreakers: can surface in a single conversation → higher floor, no day req
+// communication: 0.55 (Knapp et al. — equal predictive weight to attachment)
+// conflict_resolution: 0.55 (Gottman Four Horsemen — distinct from emotional_regulation)
+// interdependence_model: 0.50 (Baxter & Montgomery — connection-autonomy dialectic)
 export const DIMENSION_FLOORS = {
   attachment: 0.55,
   core_values: 0.55,
-  communication: 0.5,
+  communication: 0.55,
   emotional_regulation: 0.6,
   humor: 0.5,
   life_velocity: 0.5,
   dealbreakers: 0.6,
+  conflict_resolution: 0.55,
+  interdependence_model: 0.5,
 } as const;
 
 // Manifest is stale if eligibility was last computed more than this many hours ago.
@@ -57,7 +62,11 @@ export function isEligible(obs: ObservationSummary): boolean {
       DIMENSION_FLOORS.emotional_regulation &&
     obs.humor.confidence >= DIMENSION_FLOORS.humor &&
     obs.life_velocity.confidence >= DIMENSION_FLOORS.life_velocity &&
-    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers
+    obs.dealbreakers.confidence >= DIMENSION_FLOORS.dealbreakers &&
+    obs.conflict_resolution.confidence >=
+      DIMENSION_FLOORS.conflict_resolution &&
+    obs.interdependence_model.confidence >=
+      DIMENSION_FLOORS.interdependence_model
   );
 }
 
@@ -87,6 +96,8 @@ export function emptyObservation(): ObservationSummary {
     humor: { ...emptyDim },
     life_velocity: { ...emptyDim },
     dealbreakers: { ...emptyDim },
+    conflict_resolution: { ...emptyDim },
+    interdependence_model: { ...emptyDim },
     dealbreaker_gate_state: "none_observed",
     inferred_intent_category: "unclear",
   };
@@ -126,6 +137,16 @@ export function eligibilityReport(obs: ObservationSummary): string {
     ["Humor", obs.humor, DIMENSION_FLOORS.humor],
     ["Life velocity", obs.life_velocity, DIMENSION_FLOORS.life_velocity],
     ["Dealbreakers", obs.dealbreakers, DIMENSION_FLOORS.dealbreakers],
+    [
+      "Conflict resolution",
+      obs.conflict_resolution,
+      DIMENSION_FLOORS.conflict_resolution,
+    ],
+    [
+      "Interdependence model",
+      obs.interdependence_model,
+      DIMENSION_FLOORS.interdependence_model,
+    ],
   ];
 
   for (const [name, dim, floor] of dims) {

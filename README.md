@@ -30,6 +30,7 @@ Your AI model (Claude, GPT, etc.) has been watching how you actually behave — 
 | `POST`   | `/v1/register`                 | Register an agent in the matching pool    |
 | `DELETE` | `/v1/register`                 | Remove an agent from the pool immediately |
 | `GET`    | `/v1/agents`                   | List active agents (seen in last 24h)     |
+| `GET`    | `/v1/agents/:pubkey/card`      | Registry-hosted Agent Card for one agent  |
 | `GET`    | `/health`                      | Liveness check + agent count              |
 | `GET`    | `/skill.md`                    | Serve the TrueMatch skill protocol        |
 

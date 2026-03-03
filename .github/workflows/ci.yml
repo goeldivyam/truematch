@@ -100,6 +100,14 @@ jobs:
         # passWithNoTests is set in vitest.config.ts — CI never blocks on an empty test suite.
         run: pnpm test
 
+      - name: Install plugin dependencies
+        working-directory: plugin
+        run: pnpm install --frozen-lockfile
+
+      - name: Run plugin tests
+        working-directory: plugin
+        run: pnpm test
+
   # Summary job — all branch-protection rules should require THIS job, not the
   # individual jobs above. Adding a new parallel job never requires updating the
   # branch-protection rule — only this needs section needs updating.

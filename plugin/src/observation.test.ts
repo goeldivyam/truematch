@@ -1,0 +1,155 @@
+import { describe, it, expect } from "vitest";
+import {
+  isEligible,
+  isStale,
+  emptyObservation,
+  eligibilityReport,
+  DIMENSION_FLOORS,
+} from "./observation.js";
+import type { ObservationSummary } from "./types.js";
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function makeEligibleObs(): ObservationSummary {
+  const dim = (confidence: number) => ({
+    confidence,
+    observation_count: 5,
+    behavioral_context_diversity: "medium" as const,
+  });
+  const now = new Date().toISOString();
+  return {
+    updated_at: now,
+    eligibility_computed_at: now,
+    matching_eligible: true,
+    conversation_count: 3,
+    observation_span_days: 5,
+    attachment: dim(DIMENSION_FLOORS.attachment),
+    core_values: dim(DIMENSION_FLOORS.core_values),
+    communication: dim(DIMENSION_FLOORS.communication),
+    emotional_regulation: dim(DIMENSION_FLOORS.emotional_regulation),
+    humor: dim(DIMENSION_FLOORS.humor),
+    life_velocity: dim(DIMENSION_FLOORS.life_velocity),
+    dealbreakers: dim(DIMENSION_FLOORS.dealbreakers),
+    conflict_resolution: dim(DIMENSION_FLOORS.conflict_resolution),
+    interdependence_model: dim(DIMENSION_FLOORS.interdependence_model),
+    dealbreaker_gate_state: "confirmed",
+    inferred_intent_category: "serious",
+  };
+}
+
+// ── emptyObservation ──────────────────────────────────────────────────────────
+
+describe("emptyObservation", () => {
+  it("returns all-zero confidences and matching_eligible=false", () => {
+    const obs = emptyObservation();
+    expect(obs.matching_eligible).toBe(false);
+    expect(obs.conversation_count).toBe(0);
+    expect(obs.observation_span_days).toBe(0);
+    expect(obs.attachment.confidence).toBe(0);
+    expect(obs.dealbreaker_gate_state).toBe("none_observed");
+  });
+});
+
+// ── isEligible ─────────────────────────────────────────────────────────────────
+
+describe("isEligible", () => {
+  it("returns true when all conditions are met", () => {
+    expect(isEligible(makeEligibleObs())).toBe(true);
+  });
+
+  it("fails when conversation_count < 2", () => {
+    expect(isEligible({ ...makeEligibleObs(), conversation_count: 1 })).toBe(
+      false,
+    );
+  });
+
+  it("fails when observation_span_days < 2", () => {
+    expect(isEligible({ ...makeEligibleObs(), observation_span_days: 1 })).toBe(
+      false,
+    );
+  });
+
+  it("fails when dealbreaker_gate_state is none_observed", () => {
+    expect(
+      isEligible({
+        ...makeEligibleObs(),
+        dealbreaker_gate_state: "none_observed",
+      }),
+    ).toBe(false);
+  });
+
+  it("fails when dealbreaker_gate_state is below_floor", () => {
+    expect(
+      isEligible({
+        ...makeEligibleObs(),
+        dealbreaker_gate_state: "below_floor",
+      }),
+    ).toBe(false);
+  });
+
+  it("fails when attachment confidence is below floor", () => {
+    const obs = makeEligibleObs();
+    obs.attachment.confidence = DIMENSION_FLOORS.attachment - 0.01;
+    expect(isEligible(obs)).toBe(false);
+  });
+
+  it("fails when emotional_regulation is below floor (highest floor: 0.60)", () => {
+    const obs = makeEligibleObs();
+    obs.emotional_regulation.confidence =
+      DIMENSION_FLOORS.emotional_regulation - 0.01;
+    expect(isEligible(obs)).toBe(false);
+  });
+
+  it("passes when exactly at the floor (boundary condition)", () => {
+    const obs = makeEligibleObs();
+    // All dimensions are exactly at their respective floors — must pass
+    expect(isEligible(obs)).toBe(true);
+  });
+});
+
+// ── isStale ────────────────────────────────────────────────────────────────────
+
+describe("isStale", () => {
+  it("returns false for a freshly computed observation", () => {
+    const obs = makeEligibleObs();
+    obs.eligibility_computed_at = new Date().toISOString();
+    expect(isStale(obs)).toBe(false);
+  });
+
+  it("returns true when computed more than 72 hours ago", () => {
+    const obs = makeEligibleObs();
+    const old = new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString();
+    obs.eligibility_computed_at = old;
+    expect(isStale(obs)).toBe(true);
+  });
+});
+
+// ── eligibilityReport ─────────────────────────────────────────────────────────
+
+describe("eligibilityReport", () => {
+  it("shows ✓ for all passing dimensions on a fully eligible observation", () => {
+    const report = eligibilityReport(makeEligibleObs());
+    expect(report).toContain("✓ Conversations");
+    expect(report).toContain("✓ Observation span");
+    expect(report).toContain("✓ Dealbreaker gate");
+    expect(report).toContain("✓ Attachment");
+  });
+
+  it("shows ✗ for failing dimensions", () => {
+    const obs = makeEligibleObs();
+    obs.conversation_count = 1;
+    obs.attachment.confidence = 0;
+    const report = eligibilityReport(obs);
+    expect(report).toContain("✗ Conversations");
+    expect(report).toContain("✗ Attachment");
+  });
+
+  it("includes a stale warning when eligibility_computed_at is old", () => {
+    const obs = makeEligibleObs();
+    obs.eligibility_computed_at = new Date(
+      Date.now() - 80 * 60 * 60 * 1000,
+    ).toISOString();
+    const report = eligibilityReport(obs);
+    expect(report).toContain("⚠");
+  });
+});
