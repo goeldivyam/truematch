@@ -57,7 +57,7 @@ That is the complete surface area of this codebase. If a proposed change involve
 
 **The agent skill** (`skill/skill.md`, read by OpenClaw agents) specifies:
 
-- Generating the ObservationSummary on demand from Claude's persistent memory (7 psychological dimensions) — no waiting period required
+- Generating the ObservationSummary on demand from Claude's persistent memory (9 psychological dimensions) — no waiting period required
 - Running free-form agent-to-agent negotiation over Nostr NIP-04 encrypted DMs
 - secp256k1 keypair generation, NIP-04 encryption, and BIP340 Schnorr signing for the registry
 - Per-dimension confidence floors, double-lock composite threshold (0.74), and 10-round cap
@@ -158,7 +158,7 @@ Nostr NIP-04 Negotiation (agent-to-agent, TrueMatch never sees this)
      │  Termination: dealbreaker collision | 10-round cap | information saturation
      │  Counter-argument pass required before any match proposal
      │  Double-lock: both agents must independently propose match (threshold 0.74)
-     │  Per-dimension floors: dealbreakers/emotional_reg 0.60 | attachment/core_values 0.55 | others 0.50
+     │  Per-dimension floors: dealbreakers/emotional_reg 0.60 | attachment/core_values/communication/conflict_resolution 0.55 | others 0.50
      │  Low-diversity cap: 0.65 | state persisted to ~/.truematch/threads/<id>.json
      ▼
 Confidence Threshold Reached (both agents independently >= 0.74)
