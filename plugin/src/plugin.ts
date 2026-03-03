@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { getTrueMatchDir } from "./identity.js";
 import {
   loadSignals,
@@ -233,7 +233,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.18",
+  version: "0.1.20",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -277,13 +277,10 @@ export default {
         }
 
         // Register the TrueMatch background cron job if not already present.
-        // Deferred to avoid the gateway:startup race condition (openclaw issue #30257)
-        // where the cron subsystem may not be ready immediately after startup.
-        // Delay is configurable via TRUEMATCH_CRON_REGISTER_DELAY_MS for slow environments
-        // (e.g. network filesystems). Defaults to 2s.
-        // Uses spawnSync with an argument array (not execSync with a shell string)
-        // to avoid shell injection. Non-fatal — cron may not be available in all
-        // environments (e.g. local dev without OpenClaw installed).
+        // Writes directly to jobs.json — the documented approach for plugin-side
+        // cron registration (no api.registerCron() exists in the PluginAPI).
+        // Deferred to avoid the gateway:startup race condition (openclaw issue #30257).
+        // Delay is configurable via TRUEMATCH_CRON_REGISTER_DELAY_MS. Defaults to 2s.
         const cronDelay = parseInt(
           process.env["TRUEMATCH_CRON_REGISTER_DELAY_MS"] ?? "2000",
           10,
@@ -291,61 +288,61 @@ export default {
         setTimeout(() => {
           try {
             const openclawStateDir =
-              process.env["OPENCLAW_STATE_DIR"] ??
-              process.env["MOLTBOT_STATE_DIR"] ??
-              join(homedir(), ".openclaw");
+              process.env["OPENCLAW_STATE_DIR"] ?? join(homedir(), ".openclaw");
             const cronJobsFile = join(openclawStateDir, "cron", "jobs.json");
 
-            // Read existing jobs — CronStoreFile may be { jobs: [...] } or [...]
+            // Read existing jobs — CronStoreFile format: { version: 1, jobs: [...] }
+            type CronJob = {
+              id?: string;
+              name?: string;
+              [key: string]: unknown;
+            };
+            type CronStore = { version?: number; jobs: CronJob[] };
             const raw = existsSync(cronJobsFile)
               ? (JSON.parse(readFileSync(cronJobsFile, "utf8")) as
-                  | { jobs?: Array<{ name?: string }> }
-                  | Array<{ name?: string }>)
-              : [];
-            const jobs: Array<{ name?: string }> = Array.isArray(raw)
-              ? raw
-              : (raw.jobs ?? []);
+                  | CronStore
+                  | CronJob[])
+              : { version: 1, jobs: [] };
+            const store: CronStore = Array.isArray(raw)
+              ? { version: 1, jobs: raw }
+              : raw;
 
-            const alreadyRegistered = jobs.some(
+            const alreadyRegistered = store.jobs.some(
               (j) => j.name === "truematch-heartbeat",
             );
 
             if (!alreadyRegistered) {
               const FIFTEEN_MINUTES_MS = 15 * 60 * 1000; // 900000
-              const result = spawnSync(
-                "openclaw",
-                [
-                  "cron",
-                  "add",
-                  "--name",
-                  "truematch-heartbeat",
-                  "--every",
-                  String(FIFTEEN_MINUTES_MS),
-                  "--session",
-                  "isolated",
-                  // "next-heartbeat": job fires on the next scheduled gateway heartbeat
-                  // tick rather than immediately, avoiding burst load on startup.
-                  "--wake",
-                  "next-heartbeat",
-                  "--message",
-                  "Run the TrueMatch background routine: " +
+              const now = Date.now();
+              store.jobs.push({
+                id: randomUUID(),
+                name: "truematch-heartbeat",
+                enabled: true,
+                createdAtMs: now,
+                updatedAtMs: now,
+                // "every" kind with everyMs — fixed interval schedule.
+                // Isolated sessions auto-announce to the user's primary channel.
+                schedule: { kind: "every", everyMs: FIFTEEN_MINUTES_MS },
+                sessionTarget: "isolated",
+                // "next-heartbeat": fires on the next scheduled gateway heartbeat
+                // tick rather than immediately, avoiding burst load on startup.
+                wakeMode: "next-heartbeat",
+                payload: {
+                  kind: "agentTurn",
+                  message:
+                    "Run the TrueMatch background routine: " +
                     "truematch observe --show, " +
                     "truematch heartbeat, " +
                     'node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
                     "for each JSONL line received, register and process per the negotiation protocol, " +
                     "truematch match --status. " +
                     "Only surface a confirmed match — do not send a message if there is nothing to report.",
-                ],
-                { stdio: "pipe", timeout: 5000 },
-              );
-              // spawnSync does not throw on ENOENT — check error explicitly
-              if (result.error) {
-                // openclaw not on PATH or failed to start — non-fatal
-                return;
-              }
+                },
+              });
+              writeFileSync(cronJobsFile, JSON.stringify(store, null, 2));
             }
           } catch {
-            // Non-fatal — silently skip on JSON parse errors or other failures
+            // Non-fatal — silently skip on any file I/O or JSON errors
           }
         }, cronDelay);
       },
