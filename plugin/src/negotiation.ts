@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { TRUEMATCH_DIR } from "./identity.js";
+import { getTrueMatchDir } from "./identity.js";
 import { publishMessage } from "./nostr.js";
 import type {
   NegotiationState,
@@ -11,7 +11,10 @@ import type {
   MatchNarrative,
 } from "./types.js";
 
-const THREADS_DIR = join(TRUEMATCH_DIR, "threads");
+// Re-read each call so that TRUEMATCH_DIR_OVERRIDE changes take effect (used in simulation).
+function getThreadsDir(): string {
+  return join(getTrueMatchDir(), "threads");
+}
 
 // Per spec: threads with no response expire after 72 hours
 const THREAD_EXPIRY_MS = 72 * 60 * 60 * 1000;
@@ -24,8 +27,9 @@ const MAX_INBOUND_THREADS_PER_PEER = 3;
 export const MAX_ROUNDS = 10;
 
 async function ensureThreadsDir(): Promise<void> {
-  if (!existsSync(THREADS_DIR)) {
-    await mkdir(THREADS_DIR, { recursive: true });
+  const dir = getThreadsDir();
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true });
   }
 }
 
@@ -37,7 +41,7 @@ function threadFile(thread_id: string): string {
   if (!UUID_V4_RE.test(thread_id)) {
     throw new Error(`Invalid thread_id format: ${thread_id}`);
   }
-  return join(THREADS_DIR, `${thread_id}.json`);
+  return join(getThreadsDir(), `${thread_id}.json`);
 }
 
 export async function loadThread(
@@ -59,12 +63,13 @@ export async function saveThread(state: NegotiationState): Promise<void> {
 
 export async function listActiveThreads(): Promise<NegotiationState[]> {
   await ensureThreadsDir();
-  const files = await readdir(THREADS_DIR);
+  const threadsDir = getThreadsDir();
+  const files = await readdir(threadsDir);
   const threads: NegotiationState[] = [];
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
     try {
-      const raw = await readFile(join(THREADS_DIR, f), "utf8");
+      const raw = await readFile(join(threadsDir, f), "utf8");
       const t = JSON.parse(raw) as NegotiationState;
       if (t.status === "in_progress") threads.push(t);
     } catch {

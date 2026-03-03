@@ -46,6 +46,8 @@ export async function publishMessage(
   message: TrueMatchMessage,
   relays: string[] = DEFAULT_RELAYS,
 ): Promise<void> {
+  // No relays configured — skip publishing (useful for offline/simulation use).
+  if (relays.length === 0) return;
   const ciphertext = encryptMessage(senderNsec, recipientNpub, message);
 
   const eventTemplate = {

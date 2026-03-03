@@ -7,6 +7,12 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Only one deploy at a time — Azure Container Apps rejects concurrent operations.
+# cancel-in-progress: false queues rather than drops the newer run.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}

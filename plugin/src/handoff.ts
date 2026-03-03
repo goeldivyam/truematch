@@ -22,7 +22,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getTrueMatchDir } from "./identity.js";
 import type {
   PendingNotification,
   HandoffState,
@@ -30,9 +30,13 @@ import type {
   MatchNarrative,
 } from "./types.js";
 
-const TRUEMATCH_DIR = join(homedir(), ".truematch");
-const NOTIFICATION_FILE = join(TRUEMATCH_DIR, "pending_notification.json");
-const HANDOFFS_DIR = join(TRUEMATCH_DIR, "handoffs");
+// Re-read each call so that TRUEMATCH_DIR_OVERRIDE changes take effect.
+function getNotificationFile(): string {
+  return join(getTrueMatchDir(), "pending_notification.json");
+}
+function getHandoffsDir(): string {
+  return join(getTrueMatchDir(), "handoffs");
+}
 
 // 72 hours — matches Nostr thread expiry and spec consent window
 const CONSENT_EXPIRY_MS = 72 * 60 * 60 * 1000;
@@ -40,10 +44,10 @@ const CONSENT_EXPIRY_MS = 72 * 60 * 60 * 1000;
 // ── Pending notification ──────────────────────────────────────────────────────
 
 export function loadPendingNotification(): PendingNotification | null {
-  if (!existsSync(NOTIFICATION_FILE)) return null;
+  if (!existsSync(getNotificationFile())) return null;
   try {
     return JSON.parse(
-      readFileSync(NOTIFICATION_FILE, "utf8"),
+      readFileSync(getNotificationFile(), "utf8"),
     ) as PendingNotification;
   } catch {
     return null;
@@ -51,8 +55,9 @@ export function loadPendingNotification(): PendingNotification | null {
 }
 
 export function savePendingNotification(n: PendingNotification): void {
-  if (!existsSync(TRUEMATCH_DIR)) mkdirSync(TRUEMATCH_DIR, { recursive: true });
-  writeFileSync(NOTIFICATION_FILE, JSON.stringify(n, null, 2), {
+  const dir = getTrueMatchDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(getNotificationFile(), JSON.stringify(n, null, 2), {
     encoding: "utf8",
     mode: 0o600,
   });
@@ -60,7 +65,7 @@ export function savePendingNotification(n: PendingNotification): void {
 
 export function deletePendingNotification(): void {
   try {
-    if (existsSync(NOTIFICATION_FILE)) unlinkSync(NOTIFICATION_FILE);
+    if (existsSync(getNotificationFile())) unlinkSync(getNotificationFile());
   } catch {
     // ignore
   }
@@ -81,7 +86,7 @@ export function writePendingNotificationIfMatched(
   savePendingNotification(n);
 
   // Create the handoff directory and initial state
-  const handoffDir = join(HANDOFFS_DIR, matchId);
+  const handoffDir = join(getHandoffsDir(), matchId);
   if (!existsSync(handoffDir)) {
     mkdirSync(handoffDir, { recursive: true, mode: 0o700 });
   }
@@ -107,7 +112,8 @@ export function writePendingNotificationIfMatched(
 // ── Handoff state ─────────────────────────────────────────────────────────────
 
 export function loadHandoffState(matchId: string): HandoffState | null {
-  const path = join(HANDOFFS_DIR, matchId, "state.json");
+  const handoffsDir = getHandoffsDir();
+  const path = join(handoffsDir, matchId, "state.json");
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, "utf8")) as HandoffState;
@@ -117,7 +123,7 @@ export function loadHandoffState(matchId: string): HandoffState | null {
 }
 
 export function saveHandoffState(state: HandoffState): void {
-  const dir = join(HANDOFFS_DIR, state.match_id);
+  const dir = join(getHandoffsDir(), state.match_id);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2), {
     encoding: "utf8",
@@ -127,10 +133,11 @@ export function saveHandoffState(state: HandoffState): void {
 
 /** Returns all active (non-complete, non-expired) handoff states. */
 export function listActiveHandoffs(): HandoffState[] {
-  if (!existsSync(HANDOFFS_DIR)) return [];
+  const handoffsDir = getHandoffsDir();
+  if (!existsSync(handoffsDir)) return [];
   const results: HandoffState[] = [];
   try {
-    for (const entry of readdirSync(HANDOFFS_DIR, { withFileTypes: true })) {
+    for (const entry of readdirSync(handoffsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const state = loadHandoffState(entry.name);
       if (state && state.status !== "complete" && state.status !== "expired") {

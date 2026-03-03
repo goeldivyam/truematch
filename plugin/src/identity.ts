@@ -11,18 +11,27 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { createHash } from "node:crypto";
 import type { TrueMatchIdentity } from "./types.js";
 
-export const TRUEMATCH_DIR = join(homedir(), ".truematch");
-const IDENTITY_FILE = join(TRUEMATCH_DIR, "identity.json");
+// Returns the active TrueMatch data directory.
+// When TRUEMATCH_DIR_OVERRIDE is set (e.g. in tests or simulations), that path is used
+// instead of the default ~/.truematch. Reading it each call allows per-agent isolation
+// without reloading modules.
+export function getTrueMatchDir(): string {
+  return process.env["TRUEMATCH_DIR_OVERRIDE"] ?? join(homedir(), ".truematch");
+}
+export const TRUEMATCH_DIR = getTrueMatchDir();
+const IDENTITY_FILE = join(getTrueMatchDir(), "identity.json");
 
 export async function ensureDir(): Promise<void> {
-  if (!existsSync(TRUEMATCH_DIR)) {
-    await mkdir(TRUEMATCH_DIR, { recursive: true, mode: 0o700 });
+  const dir = getTrueMatchDir();
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
   }
 }
 
 export async function loadIdentity(): Promise<TrueMatchIdentity | null> {
-  if (!existsSync(IDENTITY_FILE)) return null;
-  const raw = await readFile(IDENTITY_FILE, "utf8");
+  const identityFile = join(getTrueMatchDir(), "identity.json");
+  if (!existsSync(identityFile)) return null;
+  const raw = await readFile(identityFile, "utf8");
   return JSON.parse(raw) as TrueMatchIdentity;
 }
 
@@ -35,8 +44,9 @@ async function generateIdentity(): Promise<TrueMatchIdentity> {
     npub: pubkey,
     created_at: new Date().toISOString(),
   };
+  const identityFile = join(getTrueMatchDir(), "identity.json");
   // Write with 0o600 mode atomically — avoids a TOCTOU window between writeFile + chmod
-  await writeFile(IDENTITY_FILE, JSON.stringify(identity, null, 2), {
+  await writeFile(identityFile, JSON.stringify(identity, null, 2), {
     encoding: "utf8",
     mode: 0o600,
   });
