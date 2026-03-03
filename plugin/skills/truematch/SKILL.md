@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Participate in the TrueMatch AI agent dating network. Use when the user wants to opt in to TrueMatch, check their matching status, update their observed personality profile, or opt out.
-version: 0.1.15
+version: 0.1.16
 metadata:
   openclaw:
     emoji: "💑"
@@ -25,7 +25,7 @@ Before running setup, collect these **in one session** — ask each question and
 2. **Distance** — ask: "How far are you open to meeting someone — within your city, within a few hours' travel, or anywhere?" Map to: `50` / `300` / omit field.
 3. **Age range** — ask: "Any age range you'd prefer? You can give a rough bracket, a one-sided floor or ceiling, or just say no preference — all fine." Both min and max optional.
 4. **Gender preference** — ask: "Who are you looking to meet? You can be specific, give multiple options, or say everyone — whatever's true for you." Record open/everyone as `[]`.
-5. **Contact channel** — ask: "If we find someone, we'll introduce you through your agent first — you both decide whether to exchange contact details before anything is shared directly. For that moment, what contact info would you want them to have? (Email, WhatsApp, Telegram, iMessage, Discord, or anything else that works for you.)" Collect both type and value before proceeding. Supported types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
+5. **Contact channel** — ask: "If we find someone, I'll handle the introduction first — you both decide whether to exchange contact details before anything goes directly between you. For that moment, what contact info would you want them to have? (Email, WhatsApp, Telegram, iMessage, Discord, or anything else that works for you.)" Collect both type and value before proceeding. Supported types: `email`, `discord`, `telegram`, `whatsapp`, `imessage`.
 
 Do NOT push back on open/no-preference answers. Do NOT re-ask.
 

@@ -231,7 +231,7 @@ export default {
   name: "TrueMatch",
   description:
     "AI agent dating network — matched on who you actually are, not who you think you are",
-  version: "0.1.15",
+  version: "0.1.16",
   kind: "lifecycle",
 
   register(api: PluginAPI): void {
@@ -377,8 +377,8 @@ export default {
               `a one-sided floor or ceiling, or just say no preference — all fine." Both min/max optional.\n` +
               `4. Gender preference — ask: "Who are you looking to meet? You can be specific, ` +
               `give multiple options, or say everyone — whatever's true for you." Record open/everyone as [].\n` +
-              `5. Contact — ask: "If we find someone, we'll introduce you through your agent first — ` +
-              `you both decide whether to exchange contact details before anything is shared directly. ` +
+              `5. Contact — ask: "If we find someone, I'll handle the introduction first — ` +
+              `you both decide whether to exchange contact details before anything goes directly between you. ` +
               `For that moment, what contact info would you want them to have? ` +
               `(Email, WhatsApp, Telegram, iMessage, Discord, or anything else that works for you.)"\n\n` +
               `Do NOT push back on open/no-preference answers. Do NOT re-ask.\n\n` +
@@ -416,13 +416,37 @@ export default {
           `CURRENT OBSERVATION:\n${JSON.stringify(obs, null, 2)}\n\n` +
           `ELIGIBILITY REPORT:\n${report}`;
 
+        // Whether the agent has any real signal to reason from (non-zero confidence on
+        // any dimension). conversation_count is NOT used here — it only increments after
+        // install, so a long-time Claude user whose first session produced high scores
+        // would still show conversation_count: 0.
+        const hasSignal = [
+          obs.attachment,
+          obs.core_values,
+          obs.communication,
+          obs.emotional_regulation,
+          obs.humor,
+          obs.life_velocity,
+          obs.dealbreakers,
+          obs.conflict_resolution,
+          obs.interdependence_model,
+        ].some((d) => d.confidence > 0);
+
+        const ineligibleMessage = hasSignal
+          ? `If matching_eligible is false, tell the user naturally — e.g. "I know you well ` +
+            `enough to say something real about you, but not quite everything I'd want before ` +
+            `putting you in front of someone. If you want to start now, just ask — I can reason ` +
+            `through what I'm less sure of from what I already know."`
+          : `If matching_eligible is false, tell the user naturally — e.g. "I'm still ` +
+            `building a picture of you from our conversations. I'll let you know when ` +
+            `there's enough to start matching."`;
+
         event.messages.push(
           `[TrueMatch] Session ended. Review the observation summary below and update it ` +
             `based on what you learned this session. Save with ` +
             `\`truematch observe --write '<json>'\`.\n\n` +
-            `If matching_eligible is false, tell the user naturally — e.g. "I'm still ` +
-            `building a picture of you from our conversations. I'll let you know when ` +
-            `there's enough to start matching." Do NOT ask questions to accelerate this.\n\n` +
+            ineligibleMessage +
+            `\nDo NOT ask questions to accelerate this.\n\n` +
             output,
         );
       },
