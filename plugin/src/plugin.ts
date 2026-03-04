@@ -322,6 +322,10 @@ export default {
               // Isolated sessions auto-announce to the user's primary channel.
               schedule: { kind: "every", everyMs: FIFTEEN_MINUTES_MS },
               sessionTarget: "isolated",
+              // Disable announce delivery — the before_prompt_build hook injects
+              // match notifications naturally on the next user conversation.
+              // Announce mode without a channel configured fails silently.
+              delivery: { mode: "none" },
               // "next-heartbeat": fires on the next scheduled gateway heartbeat
               // tick rather than immediately, avoiding burst load on startup.
               wakeMode: "next-heartbeat",

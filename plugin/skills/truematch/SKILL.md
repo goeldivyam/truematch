@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
-version: 0.1.26
+version: 0.1.27
 metadata:
   {
     "openclaw":
