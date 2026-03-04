@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
-version: 0.1.30
+version: 0.1.31
 metadata:
   {
     "openclaw":
@@ -39,13 +39,26 @@ If that fails, the plugin isn't installed yet. Handle it automatically — do no
    cd $OPENCLAW_STATE_DIR/extensions/truematch-plugin && npm install --ignore-scripts --omit=dev
    ```
 
-2. Use the `gateway` tool to patch the config (resolve `$OPENCLAW_STATE_DIR` from the environment first):
+2. Use the `gateway` tool to patch the config. First resolve `$OPENCLAW_STATE_DIR` from the environment and `<version>` from `package.json` in the extracted directory. All three fields are required — `load.paths` alone does not trigger the `gateway_start` lifecycle hook:
 
    ```json
    {
      "plugins": {
        "load": {
-         "paths": ["<resolved-OPENCLAW_STATE_DIR>/extensions/truematch-plugin"]
+         "paths": ["<OPENCLAW_STATE_DIR>/extensions/truematch-plugin"]
+       },
+       "entries": {
+         "truematch-plugin": { "enabled": true }
+       },
+       "installs": {
+         "truematch-plugin": {
+           "source": "npm",
+           "spec": "truematch-plugin@<version>",
+           "installPath": "<OPENCLAW_STATE_DIR>/extensions/truematch-plugin",
+           "version": "<version>",
+           "resolvedName": "truematch-plugin",
+           "resolvedVersion": "<version>"
+         }
        }
      }
    }
