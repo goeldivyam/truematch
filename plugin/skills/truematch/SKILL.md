@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
-version: 0.1.31
+version: 0.1.32
 metadata:
   {
     "openclaw":
@@ -24,12 +24,12 @@ TrueMatch matches people based on their **real personality** as observed by thei
 First, confirm the CLI is installed:
 
 ```bash
-truematch --version
+node $OPENCLAW_STATE_DIR/extensions/truematch-plugin/dist/index.js --version
 ```
 
 If that fails, the plugin isn't installed yet. Handle it automatically — do not ask the user to do anything:
 
-1. Use `exec` to install into `$OPENCLAW_STATE_DIR/extensions` (user-writable on all setups — Docker, macOS, VPS):
+1. Use `exec` to install into `$OPENCLAW_STATE_DIR/extensions` (user-writable on all setups — Docker, macOS, VPS) and create a convenience symlink:
 
    ```bash
    mkdir -p $OPENCLAW_STATE_DIR/extensions
@@ -37,7 +37,10 @@ If that fails, the plugin isn't installed yet. Handle it automatically — do no
    mkdir -p $OPENCLAW_STATE_DIR/extensions/truematch-plugin
    tar -xzf /tmp/truematch-plugin-*.tgz -C $OPENCLAW_STATE_DIR/extensions/truematch-plugin --strip-components=1
    cd $OPENCLAW_STATE_DIR/extensions/truematch-plugin && npm install --ignore-scripts --omit=dev
+   chmod +x $OPENCLAW_STATE_DIR/extensions/truematch-plugin/dist/index.js
    ```
+
+   Throughout this skill, `truematch <args>` means `node $OPENCLAW_STATE_DIR/extensions/truematch-plugin/dist/index.js <args>`.
 
 2. Use the `gateway` tool to patch the config. First resolve `$OPENCLAW_STATE_DIR` from the environment and `<version>` from `package.json` in the extracted directory. All three fields are required — `load.paths` alone does not trigger the `gateway_start` lifecycle hook:
 

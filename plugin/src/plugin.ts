@@ -97,24 +97,42 @@ interface PluginAPI {
   }): void;
 }
 
+// Resolved at module load time — env is populated before the module initialises.
+// Used in cron payload and command:new messages so paths work without $PATH tricks.
+const openclawStateDir =
+  process.env["OPENCLAW_STATE_DIR"] ?? join(homedir(), ".openclaw");
+const truematchCli = `node ${join(openclawStateDir, "extensions", "truematch-plugin", "dist", "index.js")}`;
+const pollScript = join(
+  openclawStateDir,
+  "extensions",
+  "truematch-plugin",
+  "dist",
+  "poll.js",
+);
+
 // Per-session delivery flags — keyed by sessionKey to avoid races when the gateway
 // multiplexes multiple sessions (e.g. interactive + autonomous cron) concurrently.
 // Reset on session_start; prevent re-injection within the same session.
 interface SessionFlags {
   signalDelivered: boolean;
   notificationDelivered: boolean;
+  setupDelivered: boolean;
 }
 const sessionFlagsMap = new Map<string, SessionFlags>();
 function getSessionFlags(sessionKey: string): SessionFlags {
   let flags = sessionFlagsMap.get(sessionKey);
   if (!flags) {
-    flags = { signalDelivered: false, notificationDelivered: false };
+    flags = {
+      signalDelivered: false,
+      notificationDelivered: false,
+      setupDelivered: false,
+    };
     sessionFlagsMap.set(sessionKey, flags);
   }
   return flags;
 }
 
-// Module-scoped flags set at gateway_start, consumed at first command:new.
+// Module-scoped flags set at gateway_start.
 // Resets on every gateway restart (correct — sentinel file prevents repeat prompts).
 const pluginState = {
   needsSetup: false,
@@ -264,7 +282,8 @@ export default {
 
     // ── Hook: gateway_start ────────────────────────────────────────────────────
     // Fires once per gateway process, after channels and hooks load.
-    // Use it to detect setup state so command:new can prompt appropriately.
+    // Detects setup state — before_prompt_build surfaces it on the first real message,
+    // which works on all surfaces (WhatsApp, Telegram, Discord, group chats).
     api.on("gateway_start", (_event) => {
       const identityFile = join(getTrueMatchDir(), "identity.json");
       const preferencesFile = join(getTrueMatchDir(), "preferences.json");
@@ -285,8 +304,6 @@ export default {
       );
       setTimeout(() => {
         try {
-          const openclawStateDir =
-            process.env["OPENCLAW_STATE_DIR"] ?? join(homedir(), ".openclaw");
           const cronJobsFile = join(openclawStateDir, "cron", "jobs.json");
 
           // Read existing jobs — CronStoreFile format: { version: 1, jobs: [...] }
@@ -333,13 +350,13 @@ export default {
                 kind: "agentTurn",
                 message:
                   "Run the TrueMatch background routine: " +
-                  "(1) truematch observe --show — load your current observation of this user. " +
-                  "(2) truematch heartbeat — keep registration fresh. " +
-                  '(3) node "$(npm root -g)/truematch-plugin/dist/poll.js" — ' +
-                  "for each JSONL line received, register it with truematch match --receive, then process per the negotiation protocol. " +
-                  "(4) truematch match --status — check all active threads. " +
+                  `(1) ${truematchCli} observe --show — load your current observation of this user. ` +
+                  `(2) ${truematchCli} heartbeat — keep registration fresh. ` +
+                  `(3) node "${pollScript}" — ` +
+                  `for each JSONL line received, register it with ${truematchCli} match --receive, then process per the negotiation protocol. ` +
+                  `(4) ${truematchCli} match --status — check all active threads. ` +
                   "(5) If there are no active negotiation threads AND truematch status shows matching_eligible=true, " +
-                  "run truematch match --start to find a new candidate. " +
+                  `run ${truematchCli} match --start to find a new candidate. ` +
                   "Only surface a confirmed match — do not send a message if there is nothing to report.",
               },
             });
@@ -359,6 +376,7 @@ export default {
       sessionFlagsMap.set(key, {
         signalDelivered: false,
         notificationDelivered: false,
+        setupDelivered: false,
       });
     });
 
@@ -381,6 +399,46 @@ export default {
         const key = event.sessionKey ?? "default";
         const sessionFlags = getSessionFlags(key);
         const parts: string[] = [];
+
+        // 0. Setup / preferences — highest priority, fires on first real message.
+        // before_prompt_build works on all surfaces (WhatsApp, Telegram, Discord,
+        // group chats). command:new only fires on /new and is not sufficient.
+        if (!sessionFlags.setupDelivered) {
+          if (pluginState.needsSetup) {
+            pluginState.needsSetup = false;
+            sessionFlags.setupDelivered = true;
+            parts.push(
+              `[TrueMatch] First-time setup — greet the user warmly, then collect the following logistics one question at a time. Wait for each answer before asking the next. Do not present them as a list.\n\n` +
+                `Open with: "Welcome to TrueMatch. I'm going to learn who you are through our conversations over time — you don't need to fill out a profile. I just need a few quick logistics to know who to consider. Where are you based?"\n\n` +
+                `Collect in order:\n` +
+                `1. Location — "Where are you based?"\n` +
+                `2. Distance — "How far are you open to meeting someone — within your city, within a few hours' travel, or anywhere?" Map to: 50 / 300 / omit.\n` +
+                `3. Age range — "Any age range you'd prefer? A rough bracket, one-sided, or no preference — all fine." Both min/max optional.\n` +
+                `4. Gender preference — "Who are you looking to meet? Specific, multiple, or everyone — whatever's true." Record open/everyone as [].\n` +
+                `5. Contact — "If we find someone, I'll handle the intro first. For that moment, what contact info would you want them to have? (Email, WhatsApp, Telegram, iMessage, Discord, or anything else.)"\n\n` +
+                `Do NOT push back on open answers. Do NOT re-ask.\n\n` +
+                `Then run:\n` +
+                `  ${truematchCli} setup --contact-type <type> --contact-value '<value>'\n` +
+                `  ${truematchCli} preferences --set '<json>'`,
+            );
+            return { prependContext: parts.join("\n\n---\n\n") };
+          }
+          if (pluginState.needsPreferences) {
+            pluginState.needsPreferences = false;
+            sessionFlags.setupDelivered = true;
+            parts.push(
+              `[TrueMatch] Preferences not yet set. Ask one at a time, wait for each answer:\n` +
+                `1. "Where are you based?"\n` +
+                `2. "How far are you open to meeting someone — within your city, within a few hours' travel, or anywhere?"\n` +
+                `3. "Any age range you'd prefer? Rough bracket, one-sided, or no preference — all fine."\n` +
+                `4. "Who are you looking to meet? Specific, multiple, or everyone — whatever's true."\n\n` +
+                `Accept open answers without pushback, then save:\n` +
+                `  ${truematchCli} preferences --set '<json>'\n\n` +
+                `If user tries to update preferences in main conversation later, redirect: "I don't update preferences here — say /truematch-prefs and we can do it there."`,
+            );
+            return { prependContext: parts.join("\n\n---\n\n") };
+          }
+        }
 
         // 1. Match notification (once per session)
         if (!sessionFlags.notificationDelivered) {
@@ -454,9 +512,9 @@ export default {
               `Do NOT push back on open/no-preference answers. Do NOT re-ask.\n\n` +
               `Collect both the contact type and the value before running setup.\n\n` +
               `Run setup:\n` +
-              `  node "$HOME/.truematch/truematch.js" setup --contact-type <type> --contact-value <value>\n` +
+              `  ${truematchCli} setup --contact-type <type> --contact-value '<value>'\n` +
               `Save preferences:\n` +
-              `  node "$HOME/.truematch/truematch.js" preferences --set '<json>'`,
+              `  ${truematchCli} preferences --set '<json>'`,
           );
           return;
         }
@@ -470,7 +528,7 @@ export default {
               `3. "Any age range you'd prefer? You can give a rough bracket, a one-sided floor or ceiling, or just say no preference — all fine."\n` +
               `4. "Who are you looking to meet? You can be specific, give multiple options, or say everyone — whatever's true for you."\n\n` +
               `Accept open/no-preference answers without pushback, then save:\n` +
-              `  node "$HOME/.truematch/truematch.js" preferences --set '<json>'\n\n` +
+              `  ${truematchCli} preferences --set '<json>'\n\n` +
               `If user tries to update preferences in main conversation later, redirect them:\n` +
               `"I don't update preferences here because this is my observation channel. ` +
               `Say /truematch-prefs and we can do it there."`,
@@ -514,7 +572,7 @@ export default {
         event.messages.push(
           `[TrueMatch] Session ended. Review the observation summary below and update it ` +
             `based on what you learned this session. Save with ` +
-            `\`truematch observe --write '<json>'\`.\n\n` +
+            `\`${truematchCli} observe --write '<json>'\`.\n\n` +
             ineligibleMessage +
             `\nDo NOT ask questions to accelerate this.\n\n` +
             output,
