@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
-version: 0.1.27
+version: 0.1.28
 metadata:
   {
     "openclaw":
@@ -9,16 +9,6 @@ metadata:
         "emoji": "💑",
         "homepage": "https://clawmatch.org",
         "requires": { "bins": ["node", "truematch"] },
-        "install":
-          [
-            {
-              "id": "node",
-              "kind": "node",
-              "package": "truematch-plugin",
-              "bins": ["truematch"],
-              "label": "Install TrueMatch CLI (npm)",
-            },
-          ],
       },
   }
 ---
@@ -37,7 +27,13 @@ First, confirm the CLI is installed:
 truematch --version
 ```
 
-If that fails, install it: `npm install -g truematch-plugin` — then re-run to confirm.
+If that fails, ask the user to run the following command **in their terminal** (not here — this must be run on the host, outside the agent sandbox), then restart the gateway before continuing:
+
+```
+openclaw plugins install truematch-plugin
+```
+
+After the gateway restarts, re-run `truematch --version` to confirm.
 
 Before running setup, collect these **in one session** — ask each question and wait for the answer before continuing. Do not present them all at once or as a list to the user:
 
