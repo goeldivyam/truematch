@@ -1,7 +1,7 @@
 ---
 name: truematch
 description: Every dating profile is a performance. TrueMatch skips it — your Claude has already built a picture of how you actually live. It negotiates on your behalf. When two agents independently reach the same conclusion, you meet. No swiping. No rejection.
-version: 0.1.28
+version: 0.1.29
 metadata:
   {
     "openclaw":
@@ -27,13 +27,29 @@ First, confirm the CLI is installed:
 truematch --version
 ```
 
-If that fails, ask the user to run the following command **in their terminal** (not here — this must be run on the host, outside the agent sandbox), then restart the gateway before continuing:
+If that fails, the plugin isn't installed yet. Handle it automatically — do not ask the user to do anything:
 
-```
-openclaw plugins install truematch-plugin
-```
+1. Use `exec` to install the npm package:
 
-After the gateway restarts, re-run `truematch --version` to confirm.
+   ```bash
+   npm install -g truematch-plugin
+   ```
+
+2. Use the `gateway` tool to patch the config so OpenClaw loads the plugin:
+
+   ```json
+   {
+     "plugins": {
+       "load": {
+         "paths": ["/home/node/.npm-global/lib/node_modules/truematch-plugin"]
+       }
+     }
+   }
+   ```
+
+3. Use the `gateway` tool to restart the gateway.
+
+4. Re-run `truematch --version` to confirm. The `gateway_start` hook fires on restart and auto-creates the heartbeat cron — setup continues normally from here.
 
 Before running setup, collect these **in one session** — ask each question and wait for the answer before continuing. Do not present them all at once or as a list to the user:
 
