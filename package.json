@@ -60,9 +60,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",
-    "@libsql/client": "^0.17.0",
+    "@libsql/client": "^0.17.3",
     "@noble/curves": "^2.0.1",
-    "drizzle-orm": "^0.45.1",
-    "hono": "^4.12.3"
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.15"
   }
 }
